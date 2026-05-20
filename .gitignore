@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# Modelos grandes (van por git-lfs)
+*.pkl
+*.joblib
+*.h5
+
+.env
+.env.local
+.env.production
+
+# Datasets 
+ml/eta/data/*.csv
+ml/occupancy/data/*.csv
+ml/eta/data/*.parquet
+ml/occupancy/data/*.parquet
+
+# OS
+.DS_Store
+Thumbs.db
