@@ -47,14 +47,14 @@ BACKEND_URL = "http://localhost:3000/predict/eta" #replace with the real url lat
 def send_data(payload):
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=5)
-        print(f"[OK] Sent: {payload['timestamp']} | Status: {response.status_code}")
+        print(f"[SENT] {payload['timestamp']} | Status: {response.status_code}")
     except requests.exceptions.ConnectionError:
-        print(f"[SIM] No backend yet — payload: {payload['bus_id']} @ {payload['timestamp']}")
+        print(f"[NO BACKEND] Payload built: {payload['bus_id']} @ {payload['timestamp']}")
     except Exception as e:
         print(f"[ERROR] {e}")
 
 if __name__ == "__main__":
-    print("Simulator started. Sending every 5 seconds...")
+    print(f"Simulator started. Sending every {INTERVAL} seconds...")
     i = 0
     while True:
         payload = build_payload(i)
