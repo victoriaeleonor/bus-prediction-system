@@ -156,10 +156,29 @@ def haversine_meters(lat1, lon1, lat2, lon2):
     a = math.sin((phi2-phi1)/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(math.radians((lon2-lon1)/2))**2
     return R * 2 * math.asin(math.sqrt(a))
 
-# ── stop tracker (stateful) ────────────────────────────────────────────────
+# ── speed tracker (stateful) ───────────────────────────────────────────────
+_prev_lat: float = None
+_prev_lon: float = None
+_prev_time: float = None
+
+def compute_speed_kmh(lat, lon):
+    """Compute instantaneous speed in km/h from the last known position."""
+    global _prev_lat, _prev_lon, _prev_time
+    import time
+    now = time.time()
+    speed = 0.0
+    if _prev_lat is not None:
+        dist_m = haversine_meters(_prev_lat, _prev_lon, lat, lon)
+        elapsed = now - _prev_time
+        if elapsed > 0:
+            speed = min(60.0, max(0.0, (dist_m / elapsed) * 3.6))
+    _prev_lat, _prev_lon, _prev_time = lat, lon, now
+    return round(speed, 2)
+
+
 # Advances only when the bus comes within ARRIVAL_THRESHOLD of the next stop.
 # This ensures ETA always decreases as the bus approaches, never jumps back up.
-ARRIVAL_THRESHOLD = 200  # meters — bus is considered "at" a stop within this distance
+ARRIVAL_THRESHOLD = 5  # meters — bus is considered "at" a stop within this distance
 _current_stop_idx = 0    # last stop the bus passed; backend adds 1 for "next stop"
 
 def update_stop_index(lat, lon):
@@ -214,7 +233,8 @@ def build_payload(index):
         "day_of_week":    now.weekday(),
         "is_rush_hour":   is_rush_hour(now.hour),
         "route_progress": round(current_gps_idx / total_gps, 2),
-        "stop_index":     update_stop_index(lat, lon),  # last passed stop index
+        "stop_index":     update_stop_index(lat, lon),
+        "speed_kmh":      compute_speed_kmh(lat, lon),
     }
 
 # ── envío al backend ───────────────────────────────────────────────────────

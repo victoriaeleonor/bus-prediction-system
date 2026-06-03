@@ -36,10 +36,13 @@ xgb_features   = load_pkl(OCC_DIR / f"xgboost_feature_names_{SUFFIX}.pkl")
 label_encoders = load_pkl(BASE / "ml" / "occupancy" / "data" / f"sunt_2024_03_{SUFFIX}_encoders.pkl")
 
 try:
-    eta_model = joblib.load(ETA_DIR / "rf_model_eta.pkl")
-    print("✓ ETA model loaded")
+    eta_model = joblib.load(ETA_DIR / "xgb_model_eta_final.pkl")
+    eta_meta  = load_pkl(ETA_DIR / "xgb_features_eta_final.pkl")
+    eta_features = eta_meta["features"]
+    print(f"✓ ETA model loaded (XGBoost) — {len(eta_features)} features: {eta_features}")
 except FileNotFoundError:
-    eta_model = None
+    eta_model    = None
+    eta_features = []
     print("⚠ ETA model not found — will return dummy ETA")
 
 print("✓ All models loaded")
@@ -66,7 +69,8 @@ class BusPayload(BaseModel):
     day_of_week: int
     is_rush_hour: int
     route_progress: float
-    stop_index: int = 0   # ← nuevo, default 0 para compatibilidad
+    stop_index: int = 0
+    speed_kmh: float = 0.0   # instantaneous speed, computed by simulator
 
 class PredictionResponse(BaseModel):
     bus_id: str
@@ -185,19 +189,41 @@ def predict_occupancy(payload: BusPayload) -> tuple[str, float]:
     pct_map = {"low": 15.0, "medium": 40.0, "high": 65.0, "very_high": 88.0}
     return str(occ_class), pct_map.get(str(occ_class), 50.0)
 
-def predict_eta(payload: BusPayload) -> float:
+def predict_eta(payload: BusPayload, prev_speed: float = None) -> float:
     if eta_model is None:
         return round((1 - payload.route_progress) * 5, 2)
+
+    import math
     now = datetime.fromisoformat(payload.timestamp)
     distance = get_next_stop(payload.lat, payload.lon, payload.stop_index)
+
+    # ── dist_to_dest_m: haversine to the last BUS_STOP (terminal) ────────────
+    terminal = BUS_STOPS[-1]
+    dist_to_dest = haversine_meters(payload.lat, payload.lon, terminal[0], terminal[1])
+
+    # ── speed features ────────────────────────────────────────────────────────
+    speed = max(0.0, min(60.0, payload.speed_kmh))
+    speed_roll3 = speed if prev_speed is None else (speed + prev_speed) / 2
+
+    # ── cyclic time encoding ──────────────────────────────────────────────────
+    hour_sin = math.sin(2 * math.pi * now.hour / 24)
+    hour_cos = math.cos(2 * math.pi * now.hour / 24)
+
     X = pd.DataFrame([{
         "DistanceFromStop": distance,
-        "month":       now.month,
-        "day":         now.day,
-        "day_of_week": payload.day_of_week,
-        "hour":        payload.hour,
-        "minute":      now.minute,
-    }])
+        "dist_to_dest_m":   dist_to_dest,
+        "distance_close":   int(distance < 300),
+        "schedule_delay":   0.0,
+        "speed_kmh":        speed,
+        "speed_roll3":      speed_roll3,
+        "direction":        1,
+        "hour_sin":         hour_sin,
+        "hour_cos":         hour_cos,
+        "is_am_rush":       int(now.hour in (7, 8, 9)),
+        "is_pm_rush":       int(now.hour in (16, 17, 18)),
+        "proximity_enc":    1 if distance > 300 else 0,
+    }])[eta_features]  # reorder columns to exactly match training order
+
     eta = float(eta_model.predict(X)[0])
     return round(max(0.1, eta), 2)
 
