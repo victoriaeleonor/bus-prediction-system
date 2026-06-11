@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bus Prediction Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:       #0d0f14;
+    --surface:  #151820;
+    --border:   #232733;
+    --text:     #e8eaf0;
+    --muted:    #6b7280;
+    --accent:   #00d4aa;
+    --low:      #22c55e;
+    --medium:   #f59e0b;
+    --high:     #f97316;
+    --very_high:#ef4444;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 52px 1fr;
+    grid-template-columns: 320px 1fr;
+  }
+
+  /* ── header ── */
+  header {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: .08em;
+    color: var(--accent);
+  }
+  .logo span { color: var(--muted); }
+  #conn-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+  }
+  #conn-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background .3s;
+  }
+  #conn-dot.live { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  /* ── sidebar ── */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  aside::-webkit-scrollbar { width: 4px; }
+  aside::-webkit-scrollbar-track { background: transparent; }
+  aside::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .12em;
+    color: var(--muted);
+    text-transform: uppercase;
+    padding: 16px 16px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* active bus card */
+  #bus-card {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .bus-id {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .bus-route {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .stat-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+  }
+  .stat-unit {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 2px;
+  }
+
+  /* occupancy bar */
+  .occ-section { padding: 16px; border-bottom: 1px solid var(--border); }
+  .occ-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .occ-title { font-size: 12px; color: var(--muted); font-family: var(--mono); letter-spacing: .06em; }
+  .occ-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--low);
+    color: #000;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .occ-track {
+    background: var(--bg);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .occ-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width .6s ease, background .4s ease;
+    background: var(--low);
+  }
+  .occ-pct {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  /* history feed */
+  #history-feed { flex: 1; padding: 0; }
+  .feed-item {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+  .feed-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .feed-time {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* ── map ── */
+  #map {
+    width: 100%;
+    height: 100%;
+    background: #0d0f14;
+  }
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) saturate(0.8) brightness(0.85); }
+  .leaflet-container { background: var(--bg); }
+
+  /* bus marker */
+  .bus-marker-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bus-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4); }
+    50% { box-shadow: 0 0 0 8px rgba(0,212,170,.1), 0 0 20px rgba(0,212,170,.3); }
+  }
+
+  /* ── no data state ── */
+  #no-data {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--muted);
+    pointer-events: none;
+    z-index: 999;
+  }
+  #no-data .big { font-size: 32px; margin-bottom: 8px; }
+  #no-data p { font-size: 13px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">BUS<span>//</span>PREDICT <span style="font-size:10px;margin-left:8px;opacity:.5">v1.0</span></div>
+  <div id="conn-status">
+    <div id="conn-dot"></div>
+    <span id="conn-label">esperando datos…</span>
+  </div>
+</header>
+
+<!-- sidebar -->
+<aside>
+  <div class="section-label">Bus activo</div>
+
+  <div id="bus-card">
+    <div class="bus-id" id="s-bus-id">—</div>
+    <div class="bus-route" id="s-route">sin datos</div>
+    <div class="stat-row">
+      <div class="stat-box">
+        <div class="stat-label">ETA</div>
+        <div class="stat-value" id="s-eta">—<span class="stat-unit">min</span></div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Hora</div>
+        <div class="stat-value" id="s-time" style="font-size:14px">—</div>
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-box">
+        <div class="stat-label">Lat</div>
+        <div class="stat-value" id="s-lat" style="font-size:14px">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Lon</div>
+        <div class="stat-value" id="s-lon" style="font-size:14px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="occ-section">
+    <div class="occ-header">
+      <span class="occ-title">OCUPACIÓN</span>
+      <span class="occ-badge" id="s-occ-badge">—</span>
+    </div>
+    <div class="occ-track"><div class="occ-fill" id="s-occ-fill" style="width:0%"></div></div>
+    <div class="occ-pct" id="s-occ-pct">0%</div>
+  </div>
+
+  <div class="section-label">Últimas actualizaciones</div>
+  <div id="history-feed"></div>
+</aside>
+
+<!-- map -->
+<div style="position:relative; overflow:hidden;">
+  <div id="map"></div>
+  <div id="no-data">
+    <div class="big">🚌</div>
+    <p>Iniciá el simulator.py<br>para ver el bus en tiempo real</p>
+  </div>
+</div>
+
+<script>
+// ── config ──────────────────────────────────────────────────────────────
+const WS_URL      = 'ws://localhost:8000/ws';
+const PREDICT_URL = 'http://localhost:8000/predict/eta/broadcast';
+
+// ── map init ─────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false, attributionControl: false })
+  .setView([-25.3115, -57.5432], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+// ── route: loaded from backend ──────────────────────────────────────────
+const stopIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #00d4aa;border-radius:50%;"></div>',
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+});
+
+function drawRoute({ coordinates, stops }) {
+  L.polyline(coordinates, {
+    color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
+  }).addTo(map);
+  stops.forEach((coords, i) => {
+    L.marker(coords, { icon: stopIcon })
+     .addTo(map)
+     .bindPopup('<b style="font-family:monospace">Parada ' + (i + 1) + '</b>');
+  });
+  console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
+}
+
+function loadRoute(attempt = 1) {
+  fetch(window.location.origin + '/route')
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(drawRoute)
+    .catch(err => {
+      console.error(`Route fetch failed (attempt ${attempt}):`, err);
+      if (attempt < 5) setTimeout(() => loadRoute(attempt + 1), 2000 * attempt);
+    });
+}
+loadRoute();
+
+
+// ── bus marker ───────────────────────────────────────────────────────────
+function makeBusIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="bus-marker-wrap"><div class="bus-dot" style="background:${color}"></div></div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
+let busMarker = null;
+let firstMove = true;
+
+const OCC_COLORS = {
+  low:       '#22c55e',
+  medium:    '#f59e0b',
+  high:      '#f97316',
+  very_high: '#ef4444',
+};
+
+function setBusPosition(lat, lon, occClass) {
+  const color = OCC_COLORS[occClass] || '#00d4aa';
+  if (!busMarker) {
+    busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
+  } else {
+    busMarker.setLatLng([lat, lon]);
+    busMarker.setIcon(makeBusIcon(color));
+  }
+  if (firstMove) {
+    map.setView([lat, lon], 15);
+    firstMove = false;
+  }
+}
+
+// ── sidebar update ───────────────────────────────────────────────────────
+function updateSidebar(d) {
+  document.getElementById('no-data').style.display = 'none';
+
+  document.getElementById('s-bus-id').textContent  = d.bus_id;
+  document.getElementById('s-route').textContent   = `Ruta ${d.route}`;
+  document.getElementById('s-eta').innerHTML       = `${d.eta_minutes.toFixed(1)}<span class="stat-unit">min</span>`;
+  document.getElementById('s-lat').textContent     = d.lat.toFixed(4);
+  document.getElementById('s-lon').textContent     = d.lon.toFixed(4);
+
+  const ts = new Date(d.timestamp);
+  document.getElementById('s-time').textContent =
+    ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // occupancy
+  const pct   = d.occupancy_pct ?? 0;
+  const cls   = d.occupancy_class ?? 'low';
+  const color = OCC_COLORS[cls] || '#22c55e';
+  const fill  = document.getElementById('s-occ-fill');
+  fill.style.width      = pct + '%';
+  fill.style.background = color;
+  document.getElementById('s-occ-pct').textContent   = pct.toFixed(0) + '%';
+  const badge = document.getElementById('s-occ-badge');
+  badge.textContent    = cls.replace('_', ' ').toUpperCase();
+  badge.style.background = color;
+
+  // feed entry
+  addFeedItem(d, ts, color);
+}
+
+let feedCount = 0;
+function addFeedItem(d, ts, color) {
+  const feed = document.getElementById('history-feed');
+  const div  = document.createElement('div');
+  div.className = 'feed-item';
+  div.innerHTML = `
+    <div class="feed-dot" style="background:${color}"></div>
+    <div>${d.bus_id} · <span style="color:var(--muted)">${d.occupancy_class?.replace('_',' ')}</span> · ETA ${d.eta_minutes?.toFixed(1)}min</div>
+    <div class="feed-time">${ts.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
+  `;
+  feed.prepend(div);
+  feedCount++;
+  if (feedCount > 30) feed.lastChild?.remove();
+}
+
+// ── WebSocket connection ─────────────────────────────────────────────────
+let ws;
+
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('conn-dot').classList.add('live');
+    document.getElementById('conn-label').textContent = 'conectado · en vivo';
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const d = JSON.parse(evt.data);
+      setBusPosition(d.lat, d.lon, d.occupancy_class);
+      updateSidebar(d);
+    } catch (e) { console.warn('parse error', e); }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').classList.remove('live');
+    document.getElementById('conn-label').textContent = 'desconectado · reintentando…';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+connectWS();
+
+// ── also poll /predict/eta/broadcast for direct HTTP demo ────────────────
+// (useful if WS isn't used yet — the simulator can just POST to /predict/eta/broadcast)
+</script>
+</body>
+</html>
