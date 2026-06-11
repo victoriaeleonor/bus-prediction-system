@@ -1,0 +1,2 @@
+Version,R2,MAE_min,MAE_sec,RMSE_min
+XGB without unnecessary features,0.9189,0.3009,18.05,0.5172
