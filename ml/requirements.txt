@@ -5,3 +5,7 @@ scikit-learn
 xgboost
 matplotlib
 tqdm
+httpx
+requests
+fastapi
+pydantic
