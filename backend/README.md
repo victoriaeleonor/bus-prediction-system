@@ -10,7 +10,7 @@ backend/
 │   └── health.py            # GET /health
 ├── services/
 │   ├── occupancy_service.py # lógica XGBoost SUNT OD
-│   ├── eta_service.py       # lógica XGBoost/RF MTA
+│   ├── eta_service.py       # lógica RF MTA
 │   ├── route_service.py     # llama Overpass, parsea JSON, cachea resultado
 │   └── ws_manager.py        # ConnectionManager (ya existe en main.py)
 ├── models/
@@ -20,4 +20,4 @@ backend/
 
 
 ### Requirements
-`pydantic` `httpx`
+`pydantic` `httpx` `fastapi`
