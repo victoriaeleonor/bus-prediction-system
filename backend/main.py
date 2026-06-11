@@ -114,6 +114,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,
 )
 
 
@@ -127,9 +128,19 @@ async def startup_event():
     routers can use them without reloading or relying on globals.
     """
     logger.info("=== Starting Bus Prediction API ===")
-    app.state.models = _load_models()
+    try:
+        app.state.models = _load_models()
+    except FileNotFoundError as e:
+        logger.warning("Models not found, starting without ML: %s", e)
+        app.state.models = {
+            "xgb_model": None,
+            "xgb_encoder": None,
+            "xgb_features": [],
+            "label_encoders": {},
+            "eta_model": None,
+            "eta_features": [],
+        }
     logger.info("=== Server ready ===")
-
 
 @app.on_event("shutdown")
 async def shutdown_event():

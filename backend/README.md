@@ -32,7 +32,7 @@ backend/
 │   ├── routes.py            # GET /route, GET /route/{relation_id}
 │   └── health.py            # GET /health
 ├── services/                # Business logic, no FastAPI dependencies
-│   ├── route_service.py     # Fetches route geometry from Overpass API, caches result
+│   ├── route_services.py    # Fetches route geometry from Overpass API, caches result
 │   └── ws_manager.py        # WebSocket ConnectionManager singleton
 └── models/                  # Create if working with multiple bus lines
     └── schemas.py           # Shared Pydantic models (BusPayload, PredictionResponse)

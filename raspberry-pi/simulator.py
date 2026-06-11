@@ -286,11 +286,11 @@ def send_data(payload):
         print(
             f"[{payload['timestamp'][11:19]}] "
             f"{data.get('bus_id')} | "
-            f"occ: {data.get('occupancy_class'):<9} "
-            f"({data.get('occupancy_pct', 0):.0f}%) | "
-            f"ETA: {data.get('eta_minutes', 0):.1f} min"
+            f"occ: {str(data.get('occupancy_class', '?')):<9} "
+            f"({data.get('occupancy_pct') or 0:.0f}%) | "
+            f"ETA: {data.get('eta_minutes') or 0:.1f} min"
         )
-
+        
     except requests.exceptions.ConnectionError:
         print("[NO BACKEND] Is uvicorn backend.main:app running?")
 
