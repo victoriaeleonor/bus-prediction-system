@@ -32,9 +32,11 @@ from fastapi.staticfiles import StaticFiles
 # ── routers ───────────────────────────────────────────────────────────────
 # Each router is responsible for its own endpoints.
 # main.py simply mounts them — it doesot need to know what is inside
-from routers.routes import router as routes_router
-from routers.predictions import router as predictions_router
-from routers.health import router as health_router
+
+
+from backend.routers.routes import router as routes_router
+from backend.routers.predictions import router as predictions_router
+from backend.routers.health import router as health_router
 
 logging.basicConfig(
     level=logging.INFO,
