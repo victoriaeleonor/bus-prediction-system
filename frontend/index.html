@@ -260,7 +260,7 @@
 
 <!-- sidebar -->
 <aside>
-  <div class="section-label">Bus activo</div>
+  <div class="section-label">Active Bus</div>
 
   <div id="bus-card">
     <div class="bus-id" id="s-bus-id">—</div>
@@ -271,7 +271,7 @@
         <div class="stat-value" id="s-eta">—<span class="stat-unit">min</span></div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Hora</div>
+        <div class="stat-label">Time</div>
         <div class="stat-value" id="s-time" style="font-size:14px">—</div>
       </div>
     </div>
@@ -289,14 +289,14 @@
 
   <div class="occ-section">
     <div class="occ-header">
-      <span class="occ-title">OCUPACIÓN</span>
+      <span class="occ-title">OCCUPANCY</span>
       <span class="occ-badge" id="s-occ-badge">—</span>
     </div>
     <div class="occ-track"><div class="occ-fill" id="s-occ-fill" style="width:0%"></div></div>
     <div class="occ-pct" id="s-occ-pct">0%</div>
   </div>
 
-  <div class="section-label">Últimas actualizaciones</div>
+  <div class="section-label">Last Updates</div>
   <div id="history-feed"></div>
 </aside>
 
@@ -395,7 +395,7 @@ function updateSidebar(d) {
   document.getElementById('no-data').style.display = 'none';
 
   document.getElementById('s-bus-id').textContent  = d.bus_id;
-  document.getElementById('s-route').textContent   = `Ruta ${d.route}`;
+  document.getElementById('s-route').textContent   = `${d.route}`;
   document.getElementById('s-eta').innerHTML       = `${d.eta_minutes.toFixed(1)}<span class="stat-unit">min</span>`;
   document.getElementById('s-lat').textContent     = d.lat.toFixed(4);
   document.getElementById('s-lon').textContent     = d.lon.toFixed(4);
@@ -443,7 +443,7 @@ function connectWS() {
 
   ws.onopen = () => {
     document.getElementById('conn-dot').classList.add('live');
-    document.getElementById('conn-label').textContent = 'conectado · en vivo';
+    document.getElementById('conn-label').textContent = 'Connecting · Live';
   };
 
   ws.onmessage = (evt) => {
