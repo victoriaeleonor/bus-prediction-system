@@ -50,7 +50,8 @@ import pandas as pd
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from services.ws_manager import manager
+#from services.ws_manager import manager
+from backend.services.ws_manager import manager
 
 logger = logging.getLogger(__name__)
 

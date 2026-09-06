@@ -21,7 +21,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from services.route_services import list_cached_routes
+#from services.route_services import list_cached_routes
+from backend.services.ws_manager import manager
 
 logger = logging.getLogger(__name__)
 
