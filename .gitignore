@@ -24,11 +24,15 @@ build/
 .env.local
 .env.production
 
-# Datasets 
+# Datasets
 ml/eta/data/*.csv
 ml/occupancy/data/*.csv
 ml/eta/data/*.parquet
 ml/occupancy/data/*.parquet
+
+# Archivos comprimidos grandes (datasets/modelos)
+*.zip
+ml/**/*.zip
 
 # OS
 .DS_Store
