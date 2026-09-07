@@ -81,6 +81,20 @@ def _load_models() -> dict:
     )
     logger.info("✓ Occupancy model loaded (%d features)", len(models["xgb_features"]))
 
+    try:
+        models["route_loading_mean"] = _load_pkl(
+            BASE / "ml" / "occupancy" / "data" / "route_loading_mean.pkl"
+        )
+        logger.info(
+            "✓ route_loading_mean lookup loaded (%d routes)", len(models["route_loading_mean"])
+        )
+    except FileNotFoundError:
+        models["route_loading_mean"] = {}
+        logger.warning("⚠ route_loading_mean.pkl not found — loading_mean_route will default to 0.")
+
+    # Per-bus occupancy history for loading_lag_1/loading_lag_2 (single-worker in-memory state).
+    models["bus_history"] = {}
+
     # ETA (XGBoost/RF, trained on the MTA dataset) 
     logger.info("Loading ETA model...")
     try:
@@ -139,6 +153,8 @@ async def startup_event():
             "xgb_encoder": None,
             "xgb_features": [],
             "label_encoders": {},
+            "route_loading_mean": {},
+            "bus_history": {},
             "eta_model": None,
             "eta_features": [],
         }

@@ -21,8 +21,17 @@ WS /ws
 Models
 ------
 - Occupancy: XGBoost trained with SUNT OD (Salvador, Brazil).
-  Features: hour, day_of_week, is_rush_hour, route_progress, loading,
-            month, route_short_name (encoded), + lags from previous stops.
+  Features: route_short_name (encoded), direction_id, pt_sequence, stop_id,
+            hour, day_of_week, is_weekend, is_rush_hour, route_progression,
+            loading_lag_1, loading_lag_2, trip_stage, time_of_day,
+            loading_mean_route.
+
+  Known limitations: the live BusPayload has no direction (inbound/outbound)
+  signal and no real GTFS pt_sequence/stop_id, so direction_id and stop_id
+  are held at fixed defaults and pt_sequence is approximated with
+  payload.stop_index. Combined importance of these three is under 2%.
+  loading_lag_1/loading_lag_2 (93.6% combined importance) are tracked live
+  per bus via an in-memory history — see _predict_occupancy().
 
 - ETA: XGBoost/RF trained with MTA (New York).
   Features: DistanceFromStop, dist_to_dest_m, distance_close,
@@ -43,6 +52,7 @@ cross-imports with main.py.
 
 import logging
 import math
+from collections import deque
 from datetime import datetime
 
 import numpy as np
@@ -141,6 +151,18 @@ def _dist_to_next_stop(lat: float, lon: float, stop_index: int) -> float:
     return _haversine_meters(lat, lon, next_stop[0], next_stop[1])
 
 
+def _safe_label_encode(label_encoders: dict, key: str, value: str, default: int = 0) -> int:
+    """Encodes `value` with label_encoders[key]; falls back to `default` if the
+    encoder is missing or the value is unseen (e.g. an unknown category)."""
+    encoder = label_encoders.get(key)
+    if encoder is None:
+        return default
+    try:
+        return int(encoder.transform([value])[0])
+    except Exception:
+        return default
+
+
 # ── prediction logic ───────────────────────────────────────────────────
 
 def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
@@ -148,18 +170,19 @@ def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
     Runs the occupancy XGBoost model (trained with SUNT OD).
     Returns (occupancy_class, occupancy_pct).
 
-    The 'loading' feature is the ratio of passengers to capacity,
-    which is what the model saw during training with SUNT OD.
-    The simulator sends 'occupancy' as an integer 0-100, so
-    we divide it by 100.0 to recover the ratio.
-
     If the model is not loaded (xgb_model is None), returns a dummy
     class derived from the raw occupancy value sent by the simulator.
+
+    direction_id and stop_id have no live signal in BusPayload and are held
+    at fixed defaults; pt_sequence is approximated with payload.stop_index.
+    See the module docstring for details.
     """
-    xgb_model      = models.get("xgb_model")
-    xgb_encoder    = models.get("xgb_encoder")
-    xgb_features   = models.get("xgb_features", [])
-    label_encoders = models.get("label_encoders", {})
+    xgb_model          = models.get("xgb_model")
+    xgb_encoder        = models.get("xgb_encoder")
+    xgb_features       = models.get("xgb_features", [])
+    label_encoders     = models.get("label_encoders", {})
+    route_loading_mean = models.get("route_loading_mean", {})
+    bus_history        = models.setdefault("bus_history", {})
 
     # ── dummy mode (no model loaded yet) ──────────────────────────────────
     if xgb_model is None:
@@ -178,26 +201,61 @@ def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
     now = datetime.fromisoformat(payload.timestamp)
 
     row = {f: 0 for f in xgb_features}
-    direct_mapping = {
-        "hour":           now.hour,
-        "day_of_week":    payload.day_of_week,
-        "is_rush_hour":   payload.is_rush_hour,
-        "route_progress": payload.route_progress,
-        "loading":        payload.occupancy / 100.0,
-        "month":          now.month,
-    }
-    for k, v in direct_mapping.items():
-        if k in row:
-            row[k] = v
+
+    row["hour"]         = now.hour
+    row["day_of_week"]  = payload.day_of_week
+    row["is_rush_hour"] = payload.is_rush_hour
+    row["is_weekend"]   = int(payload.day_of_week >= 5)
+
+    # Training's route_progression is 0-100 (pt_sequence / max(pt_sequence) * 100
+    # per trip); the simulator's route_progress (0-1) is the closest live proxy.
+    route_progression = max(0.0, min(100.0, payload.route_progress * 100))
+    row["route_progression"] = route_progression
+
+    if route_progression <= 25:
+        stage = "start"
+    elif route_progression >= 75:
+        stage = "end"
+    else:
+        stage = "middle"
+    row["trip_stage"] = _safe_label_encode(label_encoders, "trip_stage", stage)
+
+    if now.hour < 6:
+        tod = "night"
+    elif now.hour <= 11:
+        tod = "morning"
+    elif now.hour >= 18:
+        tod = "evening"
+    else:
+        tod = "afternoon"
+    row["time_of_day"] = _safe_label_encode(label_encoders, "time_of_day", tod)
 
     # route_short_name needs to go through the training LabelEncoder
     if "route_short_name" in row and "route_short_name" in label_encoders:
-        encoder = label_encoders["route_short_name"]
-        try:
-            row["route_short_name"] = encoder.transform([payload.route])[0]
-        except Exception:
-            # Unknown route for the encoder → we use 0 (most frequent class)
-            row["route_short_name"] = 0
+        row["route_short_name"] = _safe_label_encode(label_encoders, "route_short_name", payload.route)
+
+    # loading_mean_route: static per-route average (raw passenger count) from training.
+    if route_loading_mean:
+        fallback_mean = sum(route_loading_mean.values()) / len(route_loading_mean)
+    else:
+        fallback_mean = 0.0
+    row["loading_mean_route"] = route_loading_mean.get(row["route_short_name"], fallback_mean)
+
+    # loading_lag_1/loading_lag_2: raw occupancy at the previous 1/2 stops for
+    # this bus+route, tracked in-memory across requests. Cold start falls back
+    # to loading_mean_route rather than 0 (these two features carry 93.6% of
+    # the model's importance, so a 0 default would badly bias early predictions).
+    hist_key = f"{payload.bus_id}:{payload.route}"
+    hist = bus_history.setdefault(hist_key, deque(maxlen=2))
+    cold_start_default = row["loading_mean_route"]
+    row["loading_lag_1"] = hist[-1] if len(hist) >= 1 else cold_start_default
+    row["loading_lag_2"] = hist[-2] if len(hist) >= 2 else cold_start_default
+    hist.append(payload.occupancy)
+
+    # No live signal available for these — fixed, documented defaults.
+    row["direction_id"] = _safe_label_encode(label_encoders, "direction_id", "I", default=0)
+    row["pt_sequence"]  = payload.stop_index
+    row["stop_id"]      = 0
 
     X = pd.DataFrame([row])[xgb_features]
     pred_encoded = xgb_model.predict(X)[0]
