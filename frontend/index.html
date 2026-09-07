@@ -246,42 +246,98 @@
   }
   #no-data .big { font-size: 32px; margin-bottom: 8px; }
   #no-data p { font-size: 13px; font-family: var(--mono); }
+
+  /* ── trip planner / my-stop widget ── */
+  #trip-section, #my-stop-widget { padding: 16px; border-bottom: 1px solid var(--border); }
+  .trip-row { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  #trip-section select, #my-stop-widget select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+  #trip-calc-btn, #my-stop-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    width: 100%;
+  }
+  #trip-calc-btn:hover, #my-stop-btn:hover { opacity: .85; }
+  #trip-result, #my-stop-result {
+    margin-top: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    display: none;
+  }
+  #trip-result .trip-line, #my-stop-result .trip-line { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  #trip-result .trip-line:last-child, #my-stop-result .trip-line:last-child { margin-bottom: 0; }
+  #trip-result .trip-label, #my-stop-result .trip-label { color: var(--muted); font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
+  #trip-result .trip-value, #my-stop-result .trip-value { font-weight: 600; }
+  #trip-error, #my-stop-error { color: var(--very_high); font-size: 12px; margin-top: 8px; display: none; }
+
+  /* ── language toggle ── */
+  #lang-toggle {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  #lang-toggle:hover { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
 
 <header>
   <div class="logo">BUS<span>//</span>PREDICT <span style="font-size:10px;margin-left:8px;opacity:.5">v1.0</span></div>
-  <div id="conn-status">
-    <div id="conn-dot"></div>
-    <span id="conn-label">esperando datos…</span>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <div id="conn-status">
+      <div id="conn-dot"></div>
+      <span id="conn-label" data-i18n="waitingData">esperando datos…</span>
+    </div>
+    <button id="lang-toggle" title="Cambiar idioma / Switch language">EN</button>
   </div>
 </header>
 
 <!-- sidebar -->
 <aside>
-  <div class="section-label">Active Bus</div>
+  <div class="section-label" data-i18n="activeBus">Active Bus</div>
 
   <div id="bus-card">
     <div class="bus-id" id="s-bus-id">—</div>
-    <div class="bus-route" id="s-route">sin datos</div>
+    <div class="bus-route" id="s-route" data-i18n="noData">sin datos</div>
     <div class="stat-row">
       <div class="stat-box">
-        <div class="stat-label">ETA</div>
+        <div class="stat-label" data-i18n="eta">ETA</div>
         <div class="stat-value" id="s-eta">—<span class="stat-unit">min</span></div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Time</div>
+        <div class="stat-label" data-i18n="time">Time</div>
         <div class="stat-value" id="s-time" style="font-size:14px">—</div>
       </div>
     </div>
     <div class="stat-row">
       <div class="stat-box">
-        <div class="stat-label">Lat</div>
+        <div class="stat-label" data-i18n="lat">Lat</div>
         <div class="stat-value" id="s-lat" style="font-size:14px">—</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Lon</div>
+        <div class="stat-label" data-i18n="lon">Lon</div>
         <div class="stat-value" id="s-lon" style="font-size:14px">—</div>
       </div>
     </div>
@@ -289,14 +345,57 @@
 
   <div class="occ-section">
     <div class="occ-header">
-      <span class="occ-title">OCCUPANCY</span>
+      <span class="occ-title" data-i18n="occupancy">OCCUPANCY</span>
       <span class="occ-badge" id="s-occ-badge">—</span>
     </div>
     <div class="occ-track"><div class="occ-fill" id="s-occ-fill" style="width:0%"></div></div>
     <div class="occ-pct" id="s-occ-pct">0%</div>
   </div>
 
-  <div class="section-label">Last Updates</div>
+  <div class="section-label" data-i18n="myStopSection">When does my bus arrive?</div>
+  <div id="my-stop-widget" style="padding:16px; border-bottom:1px solid var(--border);">
+    <div class="trip-row">
+      <select id="my-stop-select"></select>
+      <button id="my-stop-btn" data-i18n="checkEta">Check arrival</button>
+    </div>
+    <div id="my-stop-error" style="color:var(--very_high); font-size:12px; margin-top:4px; display:none;"></div>
+    <div id="my-stop-result" style="margin-top:10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; display:none;">
+      <div class="trip-line">
+        <span class="trip-label" data-i18n="etaToOrigin">ETA to origin</span>
+        <span class="trip-value" id="my-stop-eta">—</span>
+      </div>
+      <div class="trip-line">
+        <span class="trip-label" data-i18n="arrivalTime">Arrival time</span>
+        <span class="trip-value" id="my-stop-arrival">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label" data-i18n="tripPlanner">Plan a trip (A → B)</div>
+  <div id="trip-section">
+    <div class="trip-row">
+      <select id="trip-origin"></select>
+      <select id="trip-destination"></select>
+      <button id="trip-calc-btn" data-i18n="calculate">Calculate</button>
+    </div>
+    <div id="trip-error" data-i18n-key="tripError"></div>
+    <div id="trip-result">
+      <div class="trip-line">
+        <span class="trip-label" data-i18n="etaToOrigin">ETA to origin</span>
+        <span class="trip-value" id="trip-eta-origin">—</span>
+      </div>
+      <div class="trip-line">
+        <span class="trip-label" data-i18n="tripDuration">Trip duration</span>
+        <span class="trip-value" id="trip-duration">—</span>
+      </div>
+      <div class="trip-line">
+        <span class="trip-label" data-i18n="arrivalTime">Arrival time</span>
+        <span class="trip-value" id="trip-arrival">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label" data-i18n="lastUpdates">Last Updates</div>
   <div id="history-feed"></div>
 </aside>
 
@@ -305,7 +404,7 @@
   <div id="map"></div>
   <div id="no-data">
     <div class="big">🚌</div>
-    <p>Iniciá el simulator.py<br>para ver el bus en tiempo real</p>
+    <p data-i18n="noDataHint">Iniciá el simulator.py<br>para ver el bus en tiempo real</p>
   </div>
 </div>
 
@@ -313,6 +412,53 @@
 // ── config ──────────────────────────────────────────────────────────────
 const WS_URL      = 'ws://localhost:8000/ws';
 const PREDICT_URL = 'http://localhost:8000/predict/eta/broadcast';
+const TRIP_URL     = window.location.origin + '/predict/trip';
+
+// ── i18n ─────────────────────────────────────────────────────────────────
+const I18N = {
+  es: {
+    waitingData: 'esperando datos…', connectingLive: 'Conectando · En vivo',
+    disconnectedRetry: 'desconectado · reintentando…',
+    activeBus: 'Bus Activo', noData: 'sin datos', eta: 'ETA', time: 'Hora',
+    lat: 'Lat', lon: 'Lon', occupancy: 'OCUPACIÓN', lastUpdates: 'Últimas Actualizaciones',
+    tripPlanner: 'Planificador de Viaje', calculate: 'Calcular',
+    etaToOrigin: 'ETA al origen', tripDuration: 'Duración del viaje', arrivalTime: 'Hora de llegada',
+    noDataHint: 'Iniciá el simulator.py<br>para ver el bus en tiempo real',
+    stopLabel: 'Parada', tripErrorRange: 'El destino no puede estar antes del origen.',
+    myStopSection: '¿Cuándo llega mi bus?', checkEta: 'Ver llegada',
+    myStopErrorGeneric: 'No se pudo calcular la llegada.',
+    tripErrorGeneric: 'No se pudo calcular el viaje.',
+  },
+  en: {
+    waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
+    disconnectedRetry: 'disconnected · retrying…',
+    activeBus: 'Active Bus', noData: 'no data', eta: 'ETA', time: 'Time',
+    lat: 'Lat', lon: 'Lon', occupancy: 'OCCUPANCY', lastUpdates: 'Last Updates',
+    tripPlanner: 'Trip Planner', calculate: 'Calculate',
+    etaToOrigin: 'ETA to origin', tripDuration: 'Trip duration', arrivalTime: 'Arrival time',
+    noDataHint: 'Start simulator.py<br>to see the bus in real time',
+    stopLabel: 'Stop', tripErrorRange: 'Destination cannot be before the origin.',
+    myStopSection: 'When does my bus arrive?', checkEta: 'Check arrival',
+    myStopErrorGeneric: 'Could not calculate the arrival.',
+    tripErrorGeneric: 'Could not calculate the trip.',
+  },
+};
+let currentLang = 'es';
+
+function applyI18n() {
+  const dict = I18N[currentLang];
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (dict[key] !== undefined) el.innerHTML = dict[key];
+  });
+  document.getElementById('lang-toggle').textContent = currentLang === 'es' ? 'EN' : 'ES';
+  populateStopSelects(); // refresh "Parada N" / "Stop N" option labels
+}
+
+document.getElementById('lang-toggle').addEventListener('click', () => {
+  currentLang = currentLang === 'es' ? 'en' : 'es';
+  applyI18n();
+});
 
 // ── map init ─────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: false, attributionControl: false })
@@ -332,7 +478,10 @@ const stopIcon = L.divIcon({
     iconAnchor: [5, 5],
 });
 
+let ROUTE_STOPS = [];
+
 function drawRoute({ coordinates, stops }) {
+  ROUTE_STOPS = stops;
   L.polyline(coordinates, {
     color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
@@ -342,7 +491,106 @@ function drawRoute({ coordinates, stops }) {
      .bindPopup('<b style="font-family:monospace">Parada ' + (i + 1) + '</b>');
   });
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
+  populateStopSelects();
 }
+
+function populateStopSelects() {
+  const originSel = document.getElementById('trip-origin');
+  const destSel    = document.getElementById('trip-destination');
+  const myStopSel  = document.getElementById('my-stop-select');
+  if (!ROUTE_STOPS.length || !originSel || !destSel || !myStopSel) return;
+
+  const prevOrigin = originSel.value;
+  const prevDest   = destSel.value;
+  const prevMyStop = myStopSel.value;
+  const label      = I18N[currentLang].stopLabel;
+
+  [originSel, destSel, myStopSel].forEach(sel => { sel.innerHTML = ''; });
+  ROUTE_STOPS.forEach((_, i) => {
+    const opt1 = document.createElement('option');
+    opt1.value = i; opt1.textContent = `${label} ${i + 1}`;
+    originSel.appendChild(opt1);
+    const opt2 = document.createElement('option');
+    opt2.value = i; opt2.textContent = `${label} ${i + 1}`;
+    destSel.appendChild(opt2);
+    const opt3 = document.createElement('option');
+    opt3.value = i; opt3.textContent = `${label} ${i + 1}`;
+    myStopSel.appendChild(opt3);
+  });
+
+  if (prevOrigin !== '') originSel.value = prevOrigin;
+  if (prevDest !== '') { destSel.value = prevDest; }
+  else destSel.selectedIndex = ROUTE_STOPS.length - 1;
+  if (prevMyStop !== '') myStopSel.value = prevMyStop;
+}
+
+// ── quick "when does my bus arrive?" check (single stop) ───────────────────
+document.getElementById('my-stop-btn').addEventListener('click', async () => {
+  const stopId    = parseInt(document.getElementById('my-stop-select').value, 10);
+  const errorBox  = document.getElementById('my-stop-error');
+  const resultBox = document.getElementById('my-stop-result');
+  const dict      = I18N[currentLang];
+
+  errorBox.style.display  = 'none';
+  resultBox.style.display = 'none';
+
+  try {
+    const res = await fetch(TRIP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin_stop_id: stopId, destination_stop_id: stopId }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+
+    document.getElementById('my-stop-eta').textContent = `${d.eta_to_origin_min.toFixed(1)} min`;
+    document.getElementById('my-stop-arrival').textContent =
+      new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    resultBox.style.display = 'block';
+  } catch (err) {
+    console.error('My-stop ETA error:', err);
+    errorBox.textContent   = dict.myStopErrorGeneric;
+    errorBox.style.display = 'block';
+  }
+});
+
+// ── trip planner ─────────────────────────────────────────────────────────
+document.getElementById('trip-calc-btn').addEventListener('click', async () => {
+  const origin      = parseInt(document.getElementById('trip-origin').value, 10);
+  const destination = parseInt(document.getElementById('trip-destination').value, 10);
+  const errorBox    = document.getElementById('trip-error');
+  const resultBox   = document.getElementById('trip-result');
+  const dict        = I18N[currentLang];
+
+  errorBox.style.display  = 'none';
+  resultBox.style.display = 'none';
+
+  if (destination < origin) {
+    errorBox.textContent   = dict.tripErrorRange;
+    errorBox.style.display = 'block';
+    return;
+  }
+
+  try {
+    const res = await fetch(TRIP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin_stop_id: origin, destination_stop_id: destination }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+
+    document.getElementById('trip-eta-origin').textContent = `${d.eta_to_origin_min.toFixed(1)} min`;
+    document.getElementById('trip-duration').textContent   = `${d.trip_duration_min.toFixed(1)} min`;
+    document.getElementById('trip-arrival').textContent    =
+      new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    resultBox.style.display = 'block';
+  } catch (err) {
+    console.error('Trip planner error:', err);
+    errorBox.textContent   = dict.tripErrorGeneric;
+    errorBox.style.display = 'block';
+  }
+});
 
 function loadRoute(attempt = 1) {
   fetch(window.location.origin + '/route')
@@ -443,7 +691,7 @@ function connectWS() {
 
   ws.onopen = () => {
     document.getElementById('conn-dot').classList.add('live');
-    document.getElementById('conn-label').textContent = 'Connecting · Live';
+    document.getElementById('conn-label').textContent = I18N[currentLang].connectingLive;
   };
 
   ws.onmessage = (evt) => {
@@ -456,13 +704,14 @@ function connectWS() {
 
   ws.onclose = () => {
     document.getElementById('conn-dot').classList.remove('live');
-    document.getElementById('conn-label').textContent = 'desconectado · reintentando…';
+    document.getElementById('conn-label').textContent = I18N[currentLang].disconnectedRetry;
     setTimeout(connectWS, 3000);
   };
 
   ws.onerror = () => ws.close();
 }
 
+applyI18n();
 connectWS();
 
 // ── also poll /predict/eta/broadcast for direct HTTP demo ────────────────

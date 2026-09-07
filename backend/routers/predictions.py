@@ -50,14 +50,16 @@ Endpoints read them via request.app.state.models — without globals or
 cross-imports with main.py.
 """
 
+import json
 import logging
 import math
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 #from services.ws_manager import manager
@@ -101,6 +103,17 @@ class PredictionResponse(BaseModel):
     is_rush_hour: int
 
 
+class TripRequest(BaseModel):
+    origin_stop_id: int       # index into BUS_STOPS, 0-based
+    destination_stop_id: int  # index into BUS_STOPS, 0-based, must be > origin_stop_id
+
+
+class TripResponse(BaseModel):
+    eta_to_origin_min: float   # minutes for the bus to reach origin_stop_id
+    trip_duration_min: float   # minutes from origin_stop_id to destination_stop_id
+    total_arrival_time: str    # ISO timestamp: now + eta_to_origin + trip_duration
+
+
 # ── Line 38 stops (for ETA calculation) ──────────────────────────
 # Same array that was in main.py. If more lines are added in the future,
 # this would be moved to a configuration file or database.
@@ -131,6 +144,18 @@ BUS_STOPS = [
 
 OCC_LABELS = {0: "low", 1: "medium", 2: "high", 3: "very_high"}
 PCT_MAP    = {"low": 15.0, "medium": 40.0, "high": 65.0, "very_high": 88.0}
+
+
+# ── segment time table (trip planner) ────────────────────────────────────
+# Static table of average travel time between consecutive stops, derived
+# once (offline, see scripts) from the 548-point simulated GPS route
+# (raspberry-pi/route_38.json, one point every INTERVAL=5s in simulator.py).
+# Loaded once at import time — never recalculated per request.
+
+_SEGMENTS_PATH = Path(__file__).parent.parent / "data" / "segment_times.json"
+with open(_SEGMENTS_PATH) as _f:
+    _SEGMENT_DATA = json.load(_f)
+SEGMENTS = _SEGMENT_DATA["segments"]  # list of 20 {from_stop, to_stop, avg_time_min, distance_m, avg_speed_kmh}
 
 
 # ── geometric helpers ────────────────────────────────────────────────────
@@ -338,6 +363,7 @@ async def predict(payload: BusPayload, request: Request):
     Used by the simulator and (in the future) by the actual Raspberry Pi.
     """
     models = request.app.state.models
+    models["last_payload"] = payload  # latest known bus telemetry, used by /predict/trip
 
     occ_class, occ_pct = _predict_occupancy(payload, models)
     eta                = _predict_eta(payload, models)
@@ -378,6 +404,67 @@ async def predict_and_broadcast(payload: BusPayload, request: Request):
     )
     await manager.broadcast(result.dict())
     return result
+
+
+@router.post(
+    "/predict/trip",
+    response_model=TripResponse,
+    summary="Predicts arrival time for an origin-destination trip",
+)
+async def predict_trip(payload: TripRequest, request: Request):
+    """
+    Given an origin and destination stop (indices into BUS_STOPS), estimates:
+    - eta_to_origin_min: reuses _predict_eta() against the last known bus
+      telemetry (from /predict/eta or /predict/eta/broadcast), pretending
+      the bus's next stop is origin_stop_id.
+    - trip_duration_min: sum of the average segment times (SEGMENTS table)
+      between origin and destination, scaled by
+      (historical avg speed of those segments / bus's current speed_kmh).
+    - total_arrival_time: now + eta_to_origin_min + trip_duration_min.
+    """
+    n_stops = len(BUS_STOPS)
+    if not (0 <= payload.origin_stop_id < n_stops) or not (0 <= payload.destination_stop_id < n_stops):
+        raise HTTPException(status_code=400, detail=f"stop ids must be between 0 and {n_stops - 1}")
+    if payload.destination_stop_id < payload.origin_stop_id:
+        raise HTTPException(status_code=400, detail="destination_stop_id must be at or after origin_stop_id")
+
+    models = request.app.state.models
+    last_payload: BusPayload | None = models.get("last_payload")
+
+    # ── eta_to_origin_min: reuse the existing ETA model ─────────────────────
+    if last_payload is not None:
+        origin_leg_payload = last_payload.copy(
+            update={"stop_index": (payload.origin_stop_id - 1) % n_stops}
+        )
+        eta_to_origin_min = _predict_eta(origin_leg_payload, models)
+        current_speed_kmh = last_payload.speed_kmh
+    else:
+        # No telemetry received yet — fall back to the same dummy ETA used
+        # by _predict_eta() when the model itself isn't loaded.
+        eta_to_origin_min = 2.0
+        current_speed_kmh = 0.0
+
+    # ── trip_duration_min: sum of segment table between origin and destination ──
+    leg_segments = SEGMENTS[payload.origin_stop_id:payload.destination_stop_id]
+    base_duration_min = sum(seg["avg_time_min"] for seg in leg_segments)
+    total_distance_m  = sum(seg["distance_m"] for seg in leg_segments)
+
+    if base_duration_min > 0 and current_speed_kmh > 0:
+        historical_avg_speed_kmh = (total_distance_m / 1000) / (base_duration_min / 60)
+        speed_factor = historical_avg_speed_kmh / current_speed_kmh
+        speed_factor = max(0.3, min(3.0, speed_factor))  # avoid unrealistic swings
+    else:
+        speed_factor = 1.0
+
+    trip_duration_min = round(base_duration_min * speed_factor, 2)
+
+    total_arrival = datetime.now() + timedelta(minutes=eta_to_origin_min + trip_duration_min)
+
+    return TripResponse(
+        eta_to_origin_min=round(eta_to_origin_min, 2),
+        trip_duration_min=trip_duration_min,
+        total_arrival_time=total_arrival.isoformat(),
+    )
 
 
 @router.websocket("/ws")
