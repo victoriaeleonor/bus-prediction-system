@@ -204,18 +204,20 @@ def compute_speed_kmh(lat, lon):
     return round(speed, 2)
 
 
-# Advances only when the bus comes within ARRIVAL_THRESHOLD
-# of the next stop. This ensures ETA always decreases as the
-# bus approaches and never jumps back up.
+# Advances (or, on the return leg, retreats) only when the bus comes within
+# ARRIVAL_THRESHOLD of the next stop in its current direction of travel.
+# This ensures ETA always decreases as the bus approaches and never jumps
+# back up — in EITHER direction, not just on the outbound leg.
 ARRIVAL_THRESHOLD = 5  # meters — bus is considered at a stop within this distance
-_current_stop_idx = 0  # last stop passed; backend adds 1 for "next stop"
+_current_stop_idx = 0  # last stop passed; backend adds `travel_direction` for "next stop"
 
 
-def update_stop_index(lat, lon):
-    """Advance _current_stop_idx if the bus has arrived at the next stop."""
+def update_stop_index(lat, lon, direction):
+    """Advance/retreat _current_stop_idx if the bus has arrived at the next
+    stop in `direction` (+1 outbound, -1 on the return leg)."""
     global _current_stop_idx
 
-    next_idx = (_current_stop_idx + 1) % len(BUS_STOPS)
+    next_idx = (_current_stop_idx + direction) % len(BUS_STOPS)
     next_stop = BUS_STOPS[next_idx]
 
     dist = haversine_meters(lat, lon, next_stop[0], next_stop[1])
@@ -226,14 +228,23 @@ def update_stop_index(lat, lon):
     return _current_stop_idx
 
 
-def get_next_position(index):
+def get_leg_state(index):
+    """Returns ((lat, lon), direction, leg_progress) for `index`.
+
+    direction is +1 while outbound (start -> end of the line) and -1 on the
+    return leg (end -> start), so callers always know which way "next stop"
+    points. leg_progress is 0->1 within whichever leg is currently active
+    (previously route_progress just cycled 0->1 forever regardless of
+    direction, which made it meaningless during the return leg).
+    """
     total = len(ROUTE_COORDINATES)
     cycle = index % (total * 2)
 
     if cycle < total:
-        return ROUTE_COORDINATES[cycle]  # outbound
+        return ROUTE_COORDINATES[cycle], 1, cycle / total  # outbound
     else:
-        return ROUTE_COORDINATES[total * 2 - 1 - cycle]  # return trip
+        pos_idx = total * 2 - 1 - cycle
+        return ROUTE_COORDINATES[pos_idx], -1, (cycle - total) / total  # return trip
 
 
 def is_rush_hour(hour):
@@ -253,12 +264,9 @@ def get_occupancy(hour):
 
 
 def build_payload(index):
-    lat, lon = get_next_position(index)
+    (lat, lon), direction, leg_progress = get_leg_state(index)
 
     now = datetime.now()
-
-    total_gps = len(ROUTE_COORDINATES)
-    current_gps_idx = index % total_gps
 
     return {
         "bus_id": BUS_ID,
@@ -270,8 +278,9 @@ def build_payload(index):
         "hour": now.hour,
         "day_of_week": now.weekday(),
         "is_rush_hour": is_rush_hour(now.hour),
-        "route_progress": round(current_gps_idx / total_gps, 2),
-        "stop_index": update_stop_index(lat, lon),
+        "route_progress": round(leg_progress, 2),
+        "stop_index": update_stop_index(lat, lon, direction),
+        "travel_direction": direction,
         "speed_kmh": compute_speed_kmh(lat, lon),
     }
 

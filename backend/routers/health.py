@@ -32,6 +32,7 @@ router = APIRouter(tags=["health"])
 @router.get("/health", summary="Server and models status")
 async def health(request: Request):
     models = request.app.state.models
+    last_payload = models.get("last_payload")
 
     return {
         "status": "ok",
@@ -40,4 +41,5 @@ async def health(request: Request):
             "eta":       models.get("eta_model") is not None,
         },
         "cached_routes": list_cached_routes(),
+        "last_telemetry": last_payload.dict() if last_payload is not None else None,
     }

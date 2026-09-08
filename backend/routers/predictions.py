@@ -86,6 +86,7 @@ class BusPayload(BaseModel):
     route_progress: float   # 0.0 → 1.0, relative position on the route
     stop_index: int = 0     # index of the last stop the bus passed
     speed_kmh: float = 0.0  # instantaneous speed calculated by the simulator
+    travel_direction: int = 1  # +1 outbound (stop_index -> stop_index+1), -1 on the return leg
 
 
 class PredictionResponse(BaseModel):
@@ -170,11 +171,26 @@ def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def _dist_to_next_stop(lat: float, lon: float, stop_index: int) -> float:
-    """Distance in meters to the next stop (stop_index + 1)."""
-    next_idx = (stop_index + 1) % len(BUS_STOPS)
+def _dist_to_next_stop(lat: float, lon: float, stop_index: int, direction: int = 1) -> float:
+    """Distance in meters to the next stop (stop_index + direction).
+
+    direction is +1 while the bus travels outbound and -1 on the return leg
+    (see BusPayload.travel_direction) — without it, "next stop" would always
+    be assumed to be stop_index + 1, which is wrong for half of a round trip.
+    """
+    next_idx = (stop_index + direction) % len(BUS_STOPS)
     next_stop = BUS_STOPS[next_idx]
     return _haversine_meters(lat, lon, next_stop[0], next_stop[1])
+
+
+def _nearest_stop_index(lat: float, lon: float) -> int:
+    """Index of the BUS_STOPS entry geographically closest to (lat, lon).
+
+    Used as a GPS-based cross-check against the bus's self-reported
+    stop_index, which can drift from reality (e.g. a client that fails to
+    track the return leg correctly).
+    """
+    return min(range(len(BUS_STOPS)), key=lambda i: _haversine_meters(lat, lon, *BUS_STOPS[i]))
 
 
 def _safe_label_encode(label_encoders: dict, key: str, value: str, default: int = 0) -> int:
@@ -314,8 +330,8 @@ def _predict_eta(payload: BusPayload, models: dict) -> float:
 
     now = datetime.fromisoformat(payload.timestamp)
 
-    distance     = _dist_to_next_stop(payload.lat, payload.lon, payload.stop_index)
-    terminal     = BUS_STOPS[-1]
+    distance     = _dist_to_next_stop(payload.lat, payload.lon, payload.stop_index, payload.travel_direction)
+    terminal     = BUS_STOPS[-1] if payload.travel_direction >= 0 else BUS_STOPS[0]
     dist_to_dest = _haversine_meters(payload.lat, payload.lon, terminal[0], terminal[1])
 
     speed        = max(0.0, min(60.0, payload.speed_kmh))
@@ -453,13 +469,30 @@ async def predict_trip(payload: TripRequest, request: Request):
 
     if last_payload is not None:
         current_speed_kmh = last_payload.speed_kmh
-        bus_next_stop = (last_payload.stop_index + 1) % n_stops  # real next stop, matches _predict_eta's training assumption
+        direction = last_payload.travel_direction if last_payload.travel_direction in (1, -1) else 1
 
-        if payload.origin_stop_id < bus_next_stop:
+        # The client's self-reported stop_index can drift from reality (a
+        # client that doesn't track the return leg correctly will get stuck
+        # at one stop forever — see raspberry-pi/simulator.py history). Cross
+        # -check it against the nearest stop by actual GPS position and
+        # trust the GPS whenever they disagree by more than one stop.
+        reported_stop = last_payload.stop_index % n_stops
+        gps_stop = _nearest_stop_index(last_payload.lat, last_payload.lon)
+        drift = min((reported_stop - gps_stop) % n_stops, (gps_stop - reported_stop) % n_stops)
+        current_stop = gps_stop if drift > 1 else reported_stop
+
+        bus_next_stop = (current_stop + direction) % n_stops  # real next stop, matches _predict_eta's training assumption
+
+        # Signed count of stops between the bus's real next stop and the
+        # chosen origin, positive when origin is still ahead — regardless of
+        # travel direction (+1 outbound / -1 on the return leg).
+        steps_ahead = (payload.origin_stop_id - bus_next_stop) * direction
+
+        if steps_ahead < 0:
             # The bus already passed this stop — no ETA to compute.
             eta_to_origin_min = 0.0
             bus_already_passed = True
-        elif payload.origin_stop_id == bus_next_stop:
+        elif steps_ahead == 0:
             # origin is exactly the bus's real next stop — squarely inside
             # the model's trained scenario, use it directly.
             eta_to_origin_min = _predict_eta(last_payload, models)
@@ -468,7 +501,8 @@ async def predict_trip(payload: TripRequest, request: Request):
             # empirical segment table for the remaining stops up to origin
             # (kept outside the ML model's input range, no extrapolation).
             eta_to_next = _predict_eta(last_payload, models)
-            base_min, dist_m = _segments_duration_m(bus_next_stop, payload.origin_stop_id)
+            lo, hi = sorted((bus_next_stop, payload.origin_stop_id))
+            base_min, dist_m = _segments_duration_m(lo, hi)
             eta_to_origin_min = eta_to_next + _speed_adjusted_minutes(base_min, dist_m, current_speed_kmh)
     else:
         # No telemetry received yet — fall back to the same dummy ETA used
