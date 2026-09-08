@@ -397,17 +397,9 @@
     </div>
     <div id="trip-error" data-i18n-key="tripError"></div>
     <div id="trip-result">
-      <div class="trip-line">
-        <span class="trip-label" data-i18n="etaToOrigin">ETA to origin</span>
-        <span class="trip-value" id="trip-eta-origin">—</span>
-      </div>
-      <div class="trip-line">
+      <div class="trip-line" style="margin-bottom:0;">
         <span class="trip-label" data-i18n="tripDuration">Trip duration</span>
-        <span class="trip-value" id="trip-duration">—</span>
-      </div>
-      <div class="trip-line">
-        <span class="trip-label" data-i18n="arrivalTime">Arrival time</span>
-        <span class="trip-value" id="trip-arrival">—</span>
+        <span class="trip-value" id="trip-duration" style="font-size:18px;">—</span>
       </div>
     </div>
   </div>
@@ -439,7 +431,7 @@ const I18N = {
     activeBus: 'Bus Activo', noData: 'sin datos', eta: 'ETA', time: 'Hora',
     lat: 'Lat', lon: 'Lon', occupancy: 'OCUPACIÓN', lastUpdates: 'Últimas Actualizaciones',
     tripPlanner: 'Planificador de Viaje', calculate: 'Calcular',
-    etaToOrigin: 'ETA al origen', tripDuration: 'Duración del viaje', arrivalTime: 'Hora de llegada',
+    etaToOrigin: 'El bus llega en', tripDuration: 'Duración del viaje', arrivalTime: 'Hora estimada',
     noDataHint: 'Iniciá el simulator.py<br>para ver el bus en tiempo real',
     stopLabel: 'Parada', tripErrorRange: 'El destino no puede estar antes del origen.',
     myStopSection: '¿Cuándo llega mi bus?', checkEta: 'Ver llegada',
@@ -458,7 +450,7 @@ const I18N = {
     activeBus: 'Active Bus', noData: 'no data', eta: 'ETA', time: 'Time',
     lat: 'Lat', lon: 'Lon', occupancy: 'OCCUPANCY', lastUpdates: 'Last Updates',
     tripPlanner: 'Trip Planner', calculate: 'Calculate',
-    etaToOrigin: 'ETA to origin', tripDuration: 'Trip duration', arrivalTime: 'Arrival time',
+    etaToOrigin: 'Bus arrives in', tripDuration: 'Trip duration', arrivalTime: 'Estimated time',
     noDataHint: 'Start simulator.py<br>to see the bus in real time',
     stopLabel: 'Stop', tripErrorRange: 'Destination cannot be before the origin.',
     myStopSection: 'When does my bus arrive?', checkEta: 'Check arrival',
@@ -675,10 +667,7 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
 
-    document.getElementById('trip-eta-origin').textContent = `${d.eta_to_origin_min.toFixed(1)} min`;
-    document.getElementById('trip-duration').textContent   = `${d.trip_duration_min.toFixed(1)} min`;
-    document.getElementById('trip-arrival').textContent    =
-      new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('trip-duration').textContent = `${d.trip_duration_min.toFixed(1)} min`;
     resultBox.style.display = 'block';
 
     if (d.bus_already_passed) {
