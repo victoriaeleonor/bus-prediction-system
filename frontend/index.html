@@ -450,6 +450,7 @@ const I18N = {
     locationError: 'No se pudo obtener tu ubicación.',
     locationSet: 'Parada más cercana seleccionada según tu ubicación.',
     tripErrorGeneric: 'No se pudo calcular el viaje.',
+    busAlreadyPassed: '🚌 El bus ya pasó por esta parada.',
   },
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
@@ -468,6 +469,7 @@ const I18N = {
     locationError: 'Could not get your location.',
     locationSet: 'Nearest stop selected based on your location.',
     tripErrorGeneric: 'Could not calculate the trip.',
+    busAlreadyPassed: '🚌 The bus already went past this stop.',
   },
 };
 let currentLang = 'es';
@@ -632,6 +634,12 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     document.getElementById('my-stop-arrival').textContent =
       new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     resultBox.style.display = 'block';
+
+    if (d.bus_already_passed) {
+      errorBox.style.color   = 'var(--medium)';
+      errorBox.textContent   = dict.busAlreadyPassed;
+      errorBox.style.display = 'block';
+    }
   } catch (err) {
     console.error('My-stop ETA error:', err);
     errorBox.style.color   = 'var(--very_high)';
@@ -648,6 +656,7 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
   const resultBox   = document.getElementById('trip-result');
   const dict        = I18N[currentLang];
 
+  errorBox.style.color    = 'var(--very_high)';
   errorBox.style.display  = 'none';
   resultBox.style.display = 'none';
 
@@ -671,8 +680,15 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
     document.getElementById('trip-arrival').textContent    =
       new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     resultBox.style.display = 'block';
+
+    if (d.bus_already_passed) {
+      errorBox.style.color   = 'var(--medium)';
+      errorBox.textContent   = dict.busAlreadyPassed;
+      errorBox.style.display = 'block';
+    }
   } catch (err) {
     console.error('Trip planner error:', err);
+    errorBox.style.color   = 'var(--very_high)';
     errorBox.textContent   = dict.tripErrorGeneric;
     errorBox.style.display = 'block';
   }

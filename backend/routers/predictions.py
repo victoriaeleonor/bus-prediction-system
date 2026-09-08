@@ -112,6 +112,7 @@ class TripResponse(BaseModel):
     eta_to_origin_min: float   # minutes for the bus to reach origin_stop_id
     trip_duration_min: float   # minutes from origin_stop_id to destination_stop_id
     total_arrival_time: str    # ISO timestamp: now + eta_to_origin + trip_duration
+    bus_already_passed: bool = False  # True if the bus already went past origin_stop_id
 
 
 # ── Line 38 stops (for ETA calculation) ──────────────────────────
@@ -414,9 +415,14 @@ async def predict_and_broadcast(payload: BusPayload, request: Request):
 async def predict_trip(payload: TripRequest, request: Request):
     """
     Given an origin and destination stop (indices into BUS_STOPS), estimates:
-    - eta_to_origin_min: reuses _predict_eta() against the last known bus
-      telemetry (from /predict/eta or /predict/eta/broadcast), pretending
-      the bus's next stop is origin_stop_id.
+    - eta_to_origin_min: _predict_eta() only covers the leg from the bus's
+      current position to its real next stop (the model was trained on
+      "distance to the immediately next stop", generally a few hundred
+      meters — feeding it a multi-km distance to a faraway origin_stop_id
+      would extrapolate a tree model far outside its training range, which
+      silently under-predicts instead of scaling proportionally). Any
+      remaining stops between the bus's real next stop and origin_stop_id
+      are covered with the same SEGMENTS table used for trip_duration_min.
     - trip_duration_min: sum of the average segment times (SEGMENTS table)
       between origin and destination, scaled by
       (historical avg speed of those segments / bus's current speed_kmh).
@@ -431,13 +437,39 @@ async def predict_trip(payload: TripRequest, request: Request):
     models = request.app.state.models
     last_payload: BusPayload | None = models.get("last_payload")
 
-    # ── eta_to_origin_min: reuse the existing ETA model ─────────────────────
+    def _segments_duration_m(from_stop: int, to_stop: int) -> tuple[float, float]:
+        """Sum of (avg_time_min, distance_m) for SEGMENTS[from_stop:to_stop]."""
+        legs = SEGMENTS[from_stop:to_stop]
+        return sum(s["avg_time_min"] for s in legs), sum(s["distance_m"] for s in legs)
+
+    def _speed_adjusted_minutes(base_minutes: float, distance_m: float, current_speed_kmh: float) -> float:
+        if base_minutes <= 0 or current_speed_kmh <= 0:
+            return base_minutes
+        historical_avg_speed_kmh = (distance_m / 1000) / (base_minutes / 60)
+        factor = max(0.3, min(3.0, historical_avg_speed_kmh / current_speed_kmh))  # avoid unrealistic swings
+        return base_minutes * factor
+
+    bus_already_passed = False
+
     if last_payload is not None:
-        origin_leg_payload = last_payload.copy(
-            update={"stop_index": (payload.origin_stop_id - 1) % n_stops}
-        )
-        eta_to_origin_min = _predict_eta(origin_leg_payload, models)
         current_speed_kmh = last_payload.speed_kmh
+        bus_next_stop = (last_payload.stop_index + 1) % n_stops  # real next stop, matches _predict_eta's training assumption
+
+        if payload.origin_stop_id < bus_next_stop:
+            # The bus already passed this stop — no ETA to compute.
+            eta_to_origin_min = 0.0
+            bus_already_passed = True
+        elif payload.origin_stop_id == bus_next_stop:
+            # origin is exactly the bus's real next stop — squarely inside
+            # the model's trained scenario, use it directly.
+            eta_to_origin_min = _predict_eta(last_payload, models)
+        else:
+            # ETA to the bus's real next stop (valid model usage) + the
+            # empirical segment table for the remaining stops up to origin
+            # (kept outside the ML model's input range, no extrapolation).
+            eta_to_next = _predict_eta(last_payload, models)
+            base_min, dist_m = _segments_duration_m(bus_next_stop, payload.origin_stop_id)
+            eta_to_origin_min = eta_to_next + _speed_adjusted_minutes(base_min, dist_m, current_speed_kmh)
     else:
         # No telemetry received yet — fall back to the same dummy ETA used
         # by _predict_eta() when the model itself isn't loaded.
@@ -445,18 +477,8 @@ async def predict_trip(payload: TripRequest, request: Request):
         current_speed_kmh = 0.0
 
     # ── trip_duration_min: sum of segment table between origin and destination ──
-    leg_segments = SEGMENTS[payload.origin_stop_id:payload.destination_stop_id]
-    base_duration_min = sum(seg["avg_time_min"] for seg in leg_segments)
-    total_distance_m  = sum(seg["distance_m"] for seg in leg_segments)
-
-    if base_duration_min > 0 and current_speed_kmh > 0:
-        historical_avg_speed_kmh = (total_distance_m / 1000) / (base_duration_min / 60)
-        speed_factor = historical_avg_speed_kmh / current_speed_kmh
-        speed_factor = max(0.3, min(3.0, speed_factor))  # avoid unrealistic swings
-    else:
-        speed_factor = 1.0
-
-    trip_duration_min = round(base_duration_min * speed_factor, 2)
+    base_duration_min, total_distance_m = _segments_duration_m(payload.origin_stop_id, payload.destination_stop_id)
+    trip_duration_min = round(_speed_adjusted_minutes(base_duration_min, total_distance_m, current_speed_kmh), 2)
 
     total_arrival = datetime.now() + timedelta(minutes=eta_to_origin_min + trip_duration_min)
 
@@ -464,6 +486,7 @@ async def predict_trip(payload: TripRequest, request: Request):
         eta_to_origin_min=round(eta_to_origin_min, 2),
         trip_duration_min=trip_duration_min,
         total_arrival_time=total_arrival.isoformat(),
+        bus_already_passed=bus_already_passed,
     )
 
 
