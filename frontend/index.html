@@ -222,15 +222,29 @@
     justify-content: center;
   }
   .bus-dot {
-    width: 16px; height: 16px;
+    width: 28px; height: 28px;
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4);
     animation: pulse 2s infinite;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    line-height: 1;
   }
   @keyframes pulse {
     0%, 100% { box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4); }
     50% { box-shadow: 0 0 0 8px rgba(0,212,170,.1), 0 0 20px rgba(0,212,170,.3); }
+  }
+
+  /* user location marker */
+  .my-location-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 4px rgba(59,130,246,.3), 0 0 10px rgba(59,130,246,.5);
   }
 
   /* ── no data state ── */
@@ -355,7 +369,10 @@
   <div class="section-label" data-i18n="myStopSection">When does my bus arrive?</div>
   <div id="my-stop-widget" style="padding:16px; border-bottom:1px solid var(--border);">
     <div class="trip-row">
-      <select id="my-stop-select"></select>
+      <div style="display:flex; gap:8px;">
+        <select id="my-stop-select" style="flex:1;"></select>
+        <button id="use-location-btn" title="" style="flex-shrink:0; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0 12px; cursor:pointer; font-size:15px;">📍</button>
+      </div>
       <button id="my-stop-btn" data-i18n="checkEta">Check arrival</button>
     </div>
     <div id="my-stop-error" style="color:var(--very_high); font-size:12px; margin-top:4px; display:none;"></div>
@@ -427,6 +444,11 @@ const I18N = {
     stopLabel: 'Parada', tripErrorRange: 'El destino no puede estar antes del origen.',
     myStopSection: '¿Cuándo llega mi bus?', checkEta: 'Ver llegada',
     myStopErrorGeneric: 'No se pudo calcular la llegada.',
+    useLocationTitle: 'Usar mi ubicación para elegir la parada más cercana',
+    locationUnsupported: 'Tu navegador no soporta geolocalización.',
+    locationDenied: 'Permiso de ubicación denegado. Elegí tu parada manualmente.',
+    locationError: 'No se pudo obtener tu ubicación.',
+    locationSet: 'Parada más cercana seleccionada según tu ubicación.',
     tripErrorGeneric: 'No se pudo calcular el viaje.',
   },
   en: {
@@ -440,6 +462,11 @@ const I18N = {
     stopLabel: 'Stop', tripErrorRange: 'Destination cannot be before the origin.',
     myStopSection: 'When does my bus arrive?', checkEta: 'Check arrival',
     myStopErrorGeneric: 'Could not calculate the arrival.',
+    useLocationTitle: 'Use my location to pick the nearest stop',
+    locationUnsupported: 'Your browser does not support geolocation.',
+    locationDenied: 'Location permission denied. Pick your stop manually.',
+    locationError: 'Could not get your location.',
+    locationSet: 'Nearest stop selected based on your location.',
     tripErrorGeneric: 'Could not calculate the trip.',
   },
 };
@@ -452,6 +479,7 @@ function applyI18n() {
     if (dict[key] !== undefined) el.innerHTML = dict[key];
   });
   document.getElementById('lang-toggle').textContent = currentLang === 'es' ? 'EN' : 'ES';
+  document.getElementById('use-location-btn').title = dict.useLocationTitle;
   populateStopSelects(); // refresh "Parada N" / "Stop N" option labels
 }
 
@@ -479,19 +507,29 @@ const stopIcon = L.divIcon({
 });
 
 let ROUTE_STOPS = [];
+let STOP_NAMES  = [];
 
-function drawRoute({ coordinates, stops }) {
+function drawRoute({ coordinates, stops, stop_names }) {
   ROUTE_STOPS = stops;
+  STOP_NAMES  = stop_names || [];
   L.polyline(coordinates, {
     color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
+    const street = STOP_NAMES[i];
+    const label  = 'Parada ' + (i + 1) + (street ? ' — ' + street : '');
     L.marker(coords, { icon: stopIcon })
      .addTo(map)
-     .bindPopup('<b style="font-family:monospace">Parada ' + (i + 1) + '</b>');
+     .bindPopup('<b style="font-family:monospace">' + label + '</b>');
   });
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
   populateStopSelects();
+}
+
+function stopOptionLabel(i) {
+  const label  = I18N[currentLang].stopLabel;
+  const street = STOP_NAMES[i];
+  return street ? `${label} ${i + 1} — ${street}` : `${label} ${i + 1}`;
 }
 
 function populateStopSelects() {
@@ -503,18 +541,18 @@ function populateStopSelects() {
   const prevOrigin = originSel.value;
   const prevDest   = destSel.value;
   const prevMyStop = myStopSel.value;
-  const label      = I18N[currentLang].stopLabel;
 
   [originSel, destSel, myStopSel].forEach(sel => { sel.innerHTML = ''; });
   ROUTE_STOPS.forEach((_, i) => {
+    const text = stopOptionLabel(i);
     const opt1 = document.createElement('option');
-    opt1.value = i; opt1.textContent = `${label} ${i + 1}`;
+    opt1.value = i; opt1.textContent = text;
     originSel.appendChild(opt1);
     const opt2 = document.createElement('option');
-    opt2.value = i; opt2.textContent = `${label} ${i + 1}`;
+    opt2.value = i; opt2.textContent = text;
     destSel.appendChild(opt2);
     const opt3 = document.createElement('option');
-    opt3.value = i; opt3.textContent = `${label} ${i + 1}`;
+    opt3.value = i; opt3.textContent = text;
     myStopSel.appendChild(opt3);
   });
 
@@ -523,6 +561,53 @@ function populateStopSelects() {
   else destSel.selectedIndex = ROUTE_STOPS.length - 1;
   if (prevMyStop !== '') myStopSel.value = prevMyStop;
 }
+
+// ── "use my location" → pick nearest stop ───────────────────────────────────
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dphi = toRad(lat2 - lat1);
+  const dlambda = toRad(lon2 - lon1);
+  const a = Math.sin(dphi / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dlambda / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+document.getElementById('use-location-btn').addEventListener('click', () => {
+  const errorBox = document.getElementById('my-stop-error');
+  const dict     = I18N[currentLang];
+  errorBox.style.display = 'none';
+
+  if (!navigator.geolocation) {
+    errorBox.textContent   = dict.locationUnsupported;
+    errorBox.style.display = 'block';
+    return;
+  }
+  if (!ROUTE_STOPS.length) return;
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      let bestIdx = 0, bestDist = Infinity;
+      ROUTE_STOPS.forEach(([slat, slon], i) => {
+        const d = haversineMeters(latitude, longitude, slat, slon);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      });
+      document.getElementById('my-stop-select').value = bestIdx;
+      setMyLocationMarker(latitude, longitude);
+      errorBox.style.color   = 'var(--accent)';
+      errorBox.textContent   = dict.locationSet;
+      errorBox.style.display = 'block';
+    },
+    (err) => {
+      console.warn('Geolocation error:', err);
+      errorBox.style.color   = 'var(--very_high)';
+      errorBox.textContent   = err.code === err.PERMISSION_DENIED ? dict.locationDenied : dict.locationError;
+      errorBox.style.display = 'block';
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+});
 
 // ── quick "when does my bus arrive?" check (single stop) ───────────────────
 document.getElementById('my-stop-btn').addEventListener('click', async () => {
@@ -549,6 +634,7 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     resultBox.style.display = 'block';
   } catch (err) {
     console.error('My-stop ETA error:', err);
+    errorBox.style.color   = 'var(--very_high)';
     errorBox.textContent   = dict.myStopErrorGeneric;
     errorBox.style.display = 'block';
   }
@@ -608,10 +694,30 @@ loadRoute();
 function makeBusIcon(color) {
   return L.divIcon({
     className: '',
-    html: `<div class="bus-marker-wrap"><div class="bus-dot" style="background:${color}"></div></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    html: `<div class="bus-marker-wrap"><div class="bus-dot" style="background:${color}">🚌</div></div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
   });
+}
+
+// ── "my location" marker ──────────────────────────────────────────────────
+const myLocationIcon = L.divIcon({
+  className: '',
+  html: '<div class="bus-marker-wrap"><div class="my-location-dot"></div></div>',
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
+
+let myLocationMarker = null;
+
+function setMyLocationMarker(lat, lon) {
+  if (!myLocationMarker) {
+    myLocationMarker = L.marker([lat, lon], { icon: myLocationIcon, zIndexOffset: 500 })
+      .addTo(map)
+      .bindPopup('<b style="font-family:monospace">📍 Mi ubicación</b>');
+  } else {
+    myLocationMarker.setLatLng([lat, lon]);
+  }
 }
 
 let busMarker = null;

@@ -1,0 +1,130 @@
+{
+  "stops": [
+    {
+      "index": 0,
+      "lat": -25.3863252,
+      "lon": -57.4976859,
+      "street": "De la Victoria"
+    },
+    {
+      "index": 1,
+      "lat": -25.3786856,
+      "lon": -57.4930827,
+      "street": "San Lorenzo"
+    },
+    {
+      "index": 2,
+      "lat": -25.3694164,
+      "lon": -57.4916613,
+      "street": "De la Victoria"
+    },
+    {
+      "index": 3,
+      "lat": -25.3584819,
+      "lon": -57.4908329,
+      "street": "De la Victoria"
+    },
+    {
+      "index": 4,
+      "lat": -25.348588,
+      "lon": -57.5029725,
+      "street": "Saturio Ríos"
+    },
+    {
+      "index": 5,
+      "lat": -25.3370013,
+      "lon": -57.5099294,
+      "street": "Doctor Gabriel Pellon"
+    },
+    {
+      "index": 6,
+      "lat": -25.3314274,
+      "lon": -57.5154413,
+      "street": "Mariscal Francisco Solano López"
+    },
+    {
+      "index": 7,
+      "lat": -25.3193744,
+      "lon": -57.5243842,
+      "street": "Avenida Mariscal López"
+    },
+    {
+      "index": 8,
+      "lat": -25.3108736,
+      "lon": -57.5307552,
+      "street": "Avenida Mariscal López"
+    },
+    {
+      "index": 9,
+      "lat": -25.304031,
+      "lon": -57.5378214,
+      "street": "Avenida Santa Teresa"
+    },
+    {
+      "index": 10,
+      "lat": -25.3062623,
+      "lon": -57.5457233,
+      "street": "Avenida Mariscal López"
+    },
+    {
+      "index": 11,
+      "lat": -25.3078456,
+      "lon": -57.552419,
+      "street": "Emiliano Fernández Rivarola"
+    },
+    {
+      "index": 12,
+      "lat": -25.3034737,
+      "lon": -57.5603186,
+      "street": "Avenida Mariscal Francisco Solano López"
+    },
+    {
+      "index": 13,
+      "lat": -25.2977134,
+      "lon": -57.5714751,
+      "street": "Avenida Mariscal Francisco Solano López"
+    },
+    {
+      "index": 14,
+      "lat": -25.2944599,
+      "lon": -57.5789756,
+      "street": "Avenida Mariscal Francisco Solano López"
+    },
+    {
+      "index": 15,
+      "lat": -25.2900301,
+      "lon": -57.5890618,
+      "street": "Avenida Mariscal Francisco Solano López"
+    },
+    {
+      "index": 16,
+      "lat": -25.2839356,
+      "lon": -57.5878745,
+      "street": "Walt Disney"
+    },
+    {
+      "index": 17,
+      "lat": -25.2707073,
+      "lon": -57.5838988,
+      "street": "Avenida Santísimo Sacramento"
+    },
+    {
+      "index": 18,
+      "lat": -25.2587977,
+      "lon": -57.5798663,
+      "street": "Avenida Santísimo Sacramento"
+    },
+    {
+      "index": 19,
+      "lat": -25.2537729,
+      "lon": -57.5749772,
+      "street": "Avenida Primer Presidente"
+    },
+    {
+      "index": 20,
+      "lat": -25.2525967,
+      "lon": -57.5772245,
+      "street": "Avenida Primer Presidente"
+    }
+  ]
+}

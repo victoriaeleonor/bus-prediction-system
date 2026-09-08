@@ -80,6 +80,7 @@ class RouteResponse(BaseModel):
     stops: list[list[float]]
     relation_id: Optional[int] = None
     from_cache: Optional[bool] = None
+    stop_names: Optional[list[Optional[str]]] = None  # street name per stop, same order as `stops`
 
 
 class CacheStatusResponse(BaseModel):
@@ -163,11 +164,23 @@ def _load_line38_from_json() -> RouteResponse:
 
     logger.info("Line 38 loaded from route_38.json: %d points", len(route[::2]))
 
+    # Street name per stop, precomputed offline via reverse geocoding
+    # (see backend/data/stop_names.json) — not looked up per request.
+    stop_names_path = Path(__file__).parent.parent / "data" / "stop_names.json"
+    try:
+        with open(stop_names_path, encoding="utf-8") as f:
+            stop_names_data = json.load(f)
+        stop_names = [entry["street"] for entry in stop_names_data["stops"]]
+    except FileNotFoundError:
+        stop_names = None
+        logger.warning("stop_names.json not found — RouteResponse.stop_names will be null.")
+
     return RouteResponse(
         coordinates=[list(p) for p in route[::2]],
         stops=[list(p) for p in bus_stops],
         relation_id=None,
         from_cache=None,
+        stop_names=stop_names,
     )
 
 
