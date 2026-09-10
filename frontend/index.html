@@ -35,7 +35,29 @@
     display: grid;
     grid-template-rows: 52px 1fr;
     grid-template-columns: 320px 1fr;
+    transition: grid-template-columns .25s ease;
   }
+  body.sidebar-collapsed { grid-template-columns: 0px 1fr; }
+
+  #sidebar-toggle {
+    position: fixed;
+    top: 78px;
+    left: 320px;
+    transform: translateX(-50%);
+    z-index: 1000;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    transition: left .25s ease;
+  }
+  #sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  body.sidebar-collapsed #sidebar-toggle { left: 12px; }
 
   /* ── header ── */
   header {
@@ -75,6 +97,8 @@
     background: var(--surface);
     border-right: 1px solid var(--border);
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 0;
@@ -311,6 +335,8 @@
   </div>
 </header>
 
+<button id="sidebar-toggle" title="Ocultar/mostrar panel · Hide/show panel">‹</button>
+
 <!-- sidebar -->
 <aside>
   <div class="section-label" data-i18n="activeBus">Active Bus</div>
@@ -487,6 +513,25 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+// ── sidebar collapse ─────────────────────────────────────────────────────
+const sidebarToggle = document.getElementById('sidebar-toggle');
+
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  sidebarToggle.textContent = collapsed ? '›' : '‹';
+  try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  // Let the CSS width transition finish before Leaflet re-measures its container.
+  setTimeout(() => map.invalidateSize(), 260);
+}
+
+sidebarToggle.addEventListener('click', () => {
+  setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+});
+
+try {
+  if (localStorage.getItem('sidebarCollapsed') === '1') setSidebarCollapsed(true);
+} catch (e) {}
+
 // ── route: loaded from backend ──────────────────────────────────────────
 const stopIcon = L.divIcon({
     className: '',
@@ -514,11 +559,12 @@ function drawRoute({ coordinates, stops, stop_names }) {
     color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
-    const street = STOP_NAMES[i];
-    const label  = 'Parada ' + (i + 1) + (street ? ' — ' + street : '');
-    const marker = L.marker(coords, { icon: stopIcon })
-     .addTo(map)
-     .bindPopup('<b style="font-family:monospace">' + label + '</b>');
+    const marker = L.marker(coords, { icon: stopIcon }).addTo(map).bindPopup('');
+    // Compute the label at popup-open time (not here) so it always reflects
+    // the current language — this runs once at load, applyI18n() doesn't.
+    marker.on('popupopen', () => {
+      marker.setPopupContent('<b style="font-family:monospace">' + stopOptionLabel(i) + '</b>');
+    });
     stopMarkers.push(marker);
   });
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
