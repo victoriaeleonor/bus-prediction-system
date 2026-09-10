@@ -1,10 +1,17 @@
 import argparse
+import sys
 import time
 import random
 import json
 import requests
 from datetime import datetime
 from pathlib import Path
+
+# Windows consoles often default to a non-UTF-8 codepage (cp1252), which
+# can't encode characters like '✓' used in the print statements below —
+# without this, that print raises UnicodeEncodeError, which then gets
+# swallowed by load_route()'s broad except and misread as a file-read error.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ── line registry ────────────────────────────────────────────────────────
 # Each real line this simulator can drive. Mirrors backend/routes_config.py
