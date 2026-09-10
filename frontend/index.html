@@ -419,8 +419,8 @@
 
 <script>
 // ── config ──────────────────────────────────────────────────────────────
-const WS_URL      = 'ws://localhost:8000/ws';
-const PREDICT_URL = 'http://localhost:8000/predict/eta/broadcast';
+const WS_URL      = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+const PREDICT_URL = window.location.origin + '/predict/eta/broadcast';
 const TRIP_URL     = window.location.origin + '/predict/trip';
 
 // ── i18n ─────────────────────────────────────────────────────────────────
