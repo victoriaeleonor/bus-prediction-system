@@ -5,23 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bus Prediction Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
-    --bg:       #0d0f14;
-    --surface:  #151820;
-    --border:   #232733;
-    --text:     #e8eaf0;
-    --muted:    #6b7280;
-    --accent:   #00d4aa;
+    --bg:       #eef1f5;
+    --surface:  #ffffff;
+    --border:   #dde1e7;
+    --text:     #14181f;
+    --muted:    #667085;
+    --accent:   #0f766e;
     --low:      #22c55e;
     --medium:   #f59e0b;
     --high:     #f97316;
     --very_high:#ef4444;
-    --mono: 'Space Mono', monospace;
-    --sans: 'DM Sans', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -212,9 +212,8 @@
   #map {
     width: 100%;
     height: 100%;
-    background: #0d0f14;
+    background: var(--bg);
   }
-  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) saturate(0.8) brightness(0.85); }
   .leaflet-container { background: var(--bg); }
 
   /* bus marker */
@@ -227,7 +226,7 @@
     width: 28px; height: 28px;
     border-radius: 50%;
     border: 2px solid #fff;
-    box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4);
+    box-shadow: 0 0 0 4px rgba(15,118,110,.25), 0 0 12px rgba(15,118,110,.4);
     animation: pulse 2s infinite;
     display: flex;
     align-items: center;
@@ -236,8 +235,8 @@
     line-height: 1;
   }
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(0,212,170,.25), 0 0 12px rgba(0,212,170,.4); }
-    50% { box-shadow: 0 0 0 8px rgba(0,212,170,.1), 0 0 20px rgba(0,212,170,.3); }
+    0%, 100% { box-shadow: 0 0 0 4px rgba(15,118,110,.25), 0 0 12px rgba(15,118,110,.4); }
+    50% { box-shadow: 0 0 0 8px rgba(15,118,110,.1), 0 0 20px rgba(15,118,110,.3); }
   }
 
   /* user location marker */
@@ -282,7 +281,7 @@
   }
   #trip-calc-btn, #my-stop-btn {
     background: var(--accent);
-    color: #000;
+    color: #fff;
     border: none;
     border-radius: 6px;
     padding: 9px 10px;
@@ -325,7 +324,7 @@
 <body>
 
 <header>
-  <div class="logo">BUS<span>//</span>PREDICT <span style="font-size:10px;margin-left:8px;opacity:.5">v1.0</span></div>
+  <div class="logo">BUS PREDICTION <span style="font-size:10px;margin-left:8px;opacity:.5">v1.0</span></div>
   <div style="display:flex; align-items:center; gap:14px;">
     <div id="conn-status">
       <div id="conn-dot"></div>
@@ -347,16 +346,6 @@
       <div class="stat-box">
         <div class="stat-label" data-i18n="eta">ETA</div>
         <div class="stat-value" id="s-eta">—</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label" data-i18n="time">Time</div>
-        <div class="stat-value" id="s-time" style="font-size:14px">—</div>
-      </div>
-    </div>
-    <div class="stat-row">
-      <div class="stat-box">
-        <div class="stat-label" data-i18n="speed">Speed</div>
-        <div class="stat-value" id="s-speed">—<span class="stat-unit">km/h</span></div>
       </div>
       <div class="stat-box">
         <div class="stat-label" data-i18n="nextStop">Next stop</div>
@@ -449,8 +438,7 @@ const I18N = {
   es: {
     waitingData: 'esperando datos…', connectingLive: 'Conectando · En vivo',
     disconnectedRetry: 'desconectado · reintentando…',
-    activeBus: 'Bus Activo', eta: 'ETA', time: 'Hora',
-    speed: 'Velocidad', nextStop: 'Próxima Parada', occupancy: 'OCUPACIÓN',
+    activeBus: 'Bus Activo', eta: 'ETA', nextStop: 'Próxima Parada', occupancy: 'OCUPACIÓN',
     tripPlanner: 'Planificador de Viaje', calculate: 'Calcular',
     etaToOrigin: 'El bus llega en', tripDuration: 'Duración del viaje', arrivalTime: 'Hora estimada',
     noDataHint: 'Iniciá el simulator.py<br>para ver el bus en tiempo real',
@@ -468,8 +456,7 @@ const I18N = {
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
     disconnectedRetry: 'disconnected · retrying…',
-    activeBus: 'Active Bus', eta: 'ETA', time: 'Time',
-    speed: 'Speed', nextStop: 'Next Stop', occupancy: 'OCCUPANCY',
+    activeBus: 'Active Bus', eta: 'ETA', nextStop: 'Next Stop', occupancy: 'OCCUPANCY',
     tripPlanner: 'Trip Planner', calculate: 'Calculate',
     etaToOrigin: 'Bus arrives in', tripDuration: 'Trip duration', arrivalTime: 'Estimated time',
     noDataHint: 'Start simulator.py<br>to see the bus in real time',
@@ -535,7 +522,7 @@ try {
 // ── route: loaded from backend ──────────────────────────────────────────
 const stopIcon = L.divIcon({
     className: '',
-    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #00d4aa;border-radius:50%;"></div>',
+    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #0f766e;border-radius:50%;"></div>',
     iconSize: [10, 10],
     iconAnchor: [5, 5],
 });
@@ -556,7 +543,7 @@ function drawRoute({ coordinates, stops, stop_names }) {
   stopMarkers = [];
 
   routeLayer = L.polyline(coordinates, {
-    color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
+    color: '#0f766e', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
     const marker = L.marker(coords, { icon: stopIcon }).addTo(map).bindPopup('');
@@ -838,7 +825,7 @@ const OCC_COLORS = {
 };
 
 function setBusPosition(lat, lon, occClass) {
-  const color = OCC_COLORS[occClass] || '#00d4aa';
+  const color = OCC_COLORS[occClass] || '#0f766e';
   if (!busMarker) {
     busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
     lastBusColor = color;
@@ -862,12 +849,7 @@ function updateSidebar(d) {
   document.getElementById('no-data').style.display = 'none';
 
   document.getElementById('s-eta').textContent     = formatDuration(d.eta_minutes);
-  document.getElementById('s-speed').innerHTML     = `${Math.round(d.speed_kmh ?? 0)}<span class="stat-unit">km/h</span>`;
   document.getElementById('s-next-stop').textContent = d.next_stop || '—';
-
-  const ts = new Date(d.timestamp);
-  document.getElementById('s-time').textContent =
-    ts.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   // occupancy
   const pct   = d.occupancy_pct ?? 0;
