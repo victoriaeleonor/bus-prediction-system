@@ -50,20 +50,19 @@ Endpoints read them via request.app.state.models — without globals or
 cross-imports with main.py.
 """
 
-import json
 import logging
 import math
 from collections import deque
 from datetime import datetime, timedelta
-from pathlib import Path
+from typing import Optional
 
-import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 #from services.ws_manager import manager
 from backend.services.ws_manager import manager
+from backend.routes_config import DEFAULT_LINE, get_line
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +75,7 @@ router = APIRouter(tags=["predictions"])
 class BusPayload(BaseModel):
     bus_id: str
     route: str
+    route_id: str = DEFAULT_LINE  # key into routes_config.LINES ("38", "15-1", ...)
     lat: float
     lon: float
     timestamp: str
@@ -92,6 +92,7 @@ class BusPayload(BaseModel):
 class PredictionResponse(BaseModel):
     bus_id: str
     route: str
+    route_id: str
     lat: float
     lon: float
     timestamp: str
@@ -99,14 +100,17 @@ class PredictionResponse(BaseModel):
     occupancy_class: str    # "low" | "medium" | "high" | "very_high"
     occupancy_pct: float    # percentage representation of the level
     eta_minutes: float      # minutes until the next stop
+    speed_kmh: float
+    next_stop: Optional[str] = None  # street name of the next stop, from stop_names.json
     hour: int
     day_of_week: int
     is_rush_hour: int
 
 
 class TripRequest(BaseModel):
-    origin_stop_id: int       # index into BUS_STOPS, 0-based
-    destination_stop_id: int  # index into BUS_STOPS, 0-based, must be > origin_stop_id
+    origin_stop_id: int       # index into the line's bus_stops, 0-based
+    destination_stop_id: int  # index into the line's bus_stops, 0-based, must be >= origin_stop_id
+    route_id: str = DEFAULT_LINE
 
 
 class TripResponse(BaseModel):
@@ -116,48 +120,8 @@ class TripResponse(BaseModel):
     bus_already_passed: bool = False  # True if the bus already went past origin_stop_id
 
 
-# ── Line 38 stops (for ETA calculation) ──────────────────────────
-# Same array that was in main.py. If more lines are added in the future,
-# this would be moved to a configuration file or database.
-
-BUS_STOPS = [
-    (-25.3863252, -57.4976859),
-    (-25.3786856, -57.4930827),
-    (-25.3694164, -57.4916613),
-    (-25.3584819, -57.4908329),
-    (-25.348588,  -57.5029725),
-    (-25.3370013, -57.5099294),
-    (-25.3314274, -57.5154413),
-    (-25.3193744, -57.5243842),
-    (-25.3108736, -57.5307552),
-    (-25.304031,  -57.5378214),
-    (-25.3062623, -57.5457233),
-    (-25.3078456, -57.552419 ),
-    (-25.3034737, -57.5603186),
-    (-25.2977134, -57.5714751),
-    (-25.2944599, -57.5789756),
-    (-25.2900301, -57.5890618),
-    (-25.2839356, -57.5878745),
-    (-25.2707073, -57.5838988),
-    (-25.2587977, -57.5798663),
-    (-25.2537729, -57.5749772),
-    (-25.2525967, -57.5772245),
-]
-
 OCC_LABELS = {0: "low", 1: "medium", 2: "high", 3: "very_high"}
 PCT_MAP    = {"low": 15.0, "medium": 40.0, "high": 65.0, "very_high": 88.0}
-
-
-# ── segment time table (trip planner) ────────────────────────────────────
-# Static table of average travel time between consecutive stops, derived
-# once (offline, see scripts) from the 548-point simulated GPS route
-# (raspberry-pi/route_38.json, one point every INTERVAL=5s in simulator.py).
-# Loaded once at import time — never recalculated per request.
-
-_SEGMENTS_PATH = Path(__file__).parent.parent / "data" / "segment_times.json"
-with open(_SEGMENTS_PATH) as _f:
-    _SEGMENT_DATA = json.load(_f)
-SEGMENTS = _SEGMENT_DATA["segments"]  # list of 20 {from_stop, to_stop, avg_time_min, distance_m, avg_speed_kmh}
 
 
 # ── geometric helpers ────────────────────────────────────────────────────
@@ -171,26 +135,32 @@ def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def _dist_to_next_stop(lat: float, lon: float, stop_index: int, direction: int = 1) -> float:
+def _dist_to_next_stop(lat: float, lon: float, stop_index: int, direction: int, bus_stops: list) -> float:
     """Distance in meters to the next stop (stop_index + direction).
 
     direction is +1 while the bus travels outbound and -1 on the return leg
     (see BusPayload.travel_direction) — without it, "next stop" would always
     be assumed to be stop_index + 1, which is wrong for half of a round trip.
     """
-    next_idx = (stop_index + direction) % len(BUS_STOPS)
-    next_stop = BUS_STOPS[next_idx]
+    next_idx = (stop_index + direction) % len(bus_stops)
+    next_stop = bus_stops[next_idx]
     return _haversine_meters(lat, lon, next_stop[0], next_stop[1])
 
 
-def _nearest_stop_index(lat: float, lon: float) -> int:
-    """Index of the BUS_STOPS entry geographically closest to (lat, lon).
+def _next_stop_name(stop_index: int, direction: int, stop_names: list) -> Optional[str]:
+    """Street name of the next stop (stop_index + direction), for display."""
+    next_idx = (stop_index + direction) % len(stop_names)
+    return stop_names[next_idx]
+
+
+def _nearest_stop_index(lat: float, lon: float, bus_stops: list) -> int:
+    """Index of the bus_stops entry geographically closest to (lat, lon).
 
     Used as a GPS-based cross-check against the bus's self-reported
     stop_index, which can drift from reality (e.g. a client that fails to
     track the return leg correctly).
     """
-    return min(range(len(BUS_STOPS)), key=lambda i: _haversine_meters(lat, lon, *BUS_STOPS[i]))
+    return min(range(len(bus_stops)), key=lambda i: _haversine_meters(lat, lon, *bus_stops[i]))
 
 
 def _safe_label_encode(label_encoders: dict, key: str, value: str, default: int = 0) -> int:
@@ -287,7 +257,7 @@ def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
     # this bus+route, tracked in-memory across requests. Cold start falls back
     # to loading_mean_route rather than 0 (these two features carry 93.6% of
     # the model's importance, so a 0 default would badly bias early predictions).
-    hist_key = f"{payload.bus_id}:{payload.route}"
+    hist_key = f"{payload.bus_id}:{payload.route_id}"
     hist = bus_history.setdefault(hist_key, deque(maxlen=2))
     cold_start_default = row["loading_mean_route"]
     row["loading_lag_1"] = hist[-1] if len(hist) >= 1 else cold_start_default
@@ -329,9 +299,10 @@ def _predict_eta(payload: BusPayload, models: dict) -> float:
         return round((1 - payload.route_progress) * 5, 2)
 
     now = datetime.fromisoformat(payload.timestamp)
+    bus_stops = get_line(payload.route_id).bus_stops
 
-    distance     = _dist_to_next_stop(payload.lat, payload.lon, payload.stop_index, payload.travel_direction)
-    terminal     = BUS_STOPS[-1] if payload.travel_direction >= 0 else BUS_STOPS[0]
+    distance     = _dist_to_next_stop(payload.lat, payload.lon, payload.stop_index, payload.travel_direction, bus_stops)
+    terminal     = bus_stops[-1] if payload.travel_direction >= 0 else bus_stops[0]
     dist_to_dest = _haversine_meters(payload.lat, payload.lon, terminal[0], terminal[1])
 
     speed        = max(0.0, min(60.0, payload.speed_kmh))
@@ -380,14 +351,19 @@ async def predict(payload: BusPayload, request: Request):
     Used by the simulator and (in the future) by the actual Raspberry Pi.
     """
     models = request.app.state.models
-    models["last_payload"] = payload  # latest known bus telemetry, used by /predict/trip
+    # Latest known telemetry per line, used by /predict/trip — keyed by
+    # route_id so two lines running concurrently don't clobber each other.
+    models.setdefault("last_payload_by_route", {})[payload.route_id] = payload
 
+    line = get_line(payload.route_id)
     occ_class, occ_pct = _predict_occupancy(payload, models)
     eta                = _predict_eta(payload, models)
+    next_stop          = _next_stop_name(payload.stop_index, payload.travel_direction, line.stop_names)
 
     return PredictionResponse(
         bus_id          = payload.bus_id,
         route           = payload.route,
+        route_id        = payload.route_id,
         lat             = payload.lat,
         lon             = payload.lon,
         timestamp       = payload.timestamp,
@@ -395,6 +371,8 @@ async def predict(payload: BusPayload, request: Request):
         occupancy_class = occ_class,
         occupancy_pct   = occ_pct,
         eta_minutes     = eta,
+        speed_kmh       = payload.speed_kmh,
+        next_stop       = next_stop,
         hour            = payload.hour,
         day_of_week     = payload.day_of_week,
         is_rush_hour    = payload.is_rush_hour,
@@ -430,7 +408,8 @@ async def predict_and_broadcast(payload: BusPayload, request: Request):
 )
 async def predict_trip(payload: TripRequest, request: Request):
     """
-    Given an origin and destination stop (indices into BUS_STOPS), estimates:
+    Given an origin and destination stop (indices into the line's bus_stops),
+    estimates:
     - eta_to_origin_min: _predict_eta() only covers the leg from the bus's
       current position to its real next stop (the model was trained on
       "distance to the immediately next stop", generally a few hundred
@@ -438,24 +417,28 @@ async def predict_trip(payload: TripRequest, request: Request):
       would extrapolate a tree model far outside its training range, which
       silently under-predicts instead of scaling proportionally). Any
       remaining stops between the bus's real next stop and origin_stop_id
-      are covered with the same SEGMENTS table used for trip_duration_min.
-    - trip_duration_min: sum of the average segment times (SEGMENTS table)
-      between origin and destination, scaled by
+      are covered with the same segment table used for trip_duration_min.
+    - trip_duration_min: sum of the average segment times (the line's
+      segment table) between origin and destination, scaled by
       (historical avg speed of those segments / bus's current speed_kmh).
     - total_arrival_time: now + eta_to_origin_min + trip_duration_min.
     """
-    n_stops = len(BUS_STOPS)
+    line = get_line(payload.route_id)
+    bus_stops = line.bus_stops
+    segments = line.segments
+
+    n_stops = len(bus_stops)
     if not (0 <= payload.origin_stop_id < n_stops) or not (0 <= payload.destination_stop_id < n_stops):
         raise HTTPException(status_code=400, detail=f"stop ids must be between 0 and {n_stops - 1}")
     if payload.destination_stop_id < payload.origin_stop_id:
         raise HTTPException(status_code=400, detail="destination_stop_id must be at or after origin_stop_id")
 
     models = request.app.state.models
-    last_payload: BusPayload | None = models.get("last_payload")
+    last_payload: Optional[BusPayload] = models.get("last_payload_by_route", {}).get(payload.route_id)
 
     def _segments_duration_m(from_stop: int, to_stop: int) -> tuple[float, float]:
-        """Sum of (avg_time_min, distance_m) for SEGMENTS[from_stop:to_stop]."""
-        legs = SEGMENTS[from_stop:to_stop]
+        """Sum of (avg_time_min, distance_m) for segments[from_stop:to_stop]."""
+        legs = segments[from_stop:to_stop]
         return sum(s["avg_time_min"] for s in legs), sum(s["distance_m"] for s in legs)
 
     def _speed_adjusted_minutes(base_minutes: float, distance_m: float, current_speed_kmh: float) -> float:
@@ -477,7 +460,7 @@ async def predict_trip(payload: TripRequest, request: Request):
         # -check it against the nearest stop by actual GPS position and
         # trust the GPS whenever they disagree by more than one stop.
         reported_stop = last_payload.stop_index % n_stops
-        gps_stop = _nearest_stop_index(last_payload.lat, last_payload.lon)
+        gps_stop = _nearest_stop_index(last_payload.lat, last_payload.lon, bus_stops)
         drift = min((reported_stop - gps_stop) % n_stops, (gps_stop - reported_stop) % n_stops)
         current_stop = gps_stop if drift > 1 else reported_stop
 

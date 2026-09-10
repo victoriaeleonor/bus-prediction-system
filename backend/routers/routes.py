@@ -51,10 +51,9 @@ in the current API contract.
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from backend.services.route_services import (
@@ -62,6 +61,7 @@ from backend.services.route_services import (
     invalidate_cache,
     list_cached_routes,
 )
+from backend.routes_config import LINES, DEFAULT_LINE, LineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -88,19 +88,20 @@ class CacheStatusResponse(BaseModel):
     count: int
 
 
-# ── fixed Line 38 route (loaded only once when the module is imported) ───
+class LineInfo(BaseModel):
+    route_id: str
+    label: str
 
-def _load_line38_from_json() -> RouteResponse:
+
+# ── static, locally-known lines (loaded only once at import) ─────────────
+
+def _load_static_route(line: LineConfig) -> RouteResponse:
     """
-    Loads route_38.json and reconstructs the polyline in the same order
-    used by load_route_from_json() in the original main.py.
-
-    Called only once when the server starts (during module import).
-    The result is stored in _LINEA38 for all subsequent requests.
+    Loads a line's raspberry-pi/route_*.json and reconstructs the polyline
+    in relation-member order, same algorithm as route_services.py uses for
+    dynamic OSM lookups. Called once per line at import time.
     """
-    route_file = Path(__file__).parent.parent.parent / "raspberry-pi" / "route_38.json"
-
-    with open(route_file) as f:
+    with open(line.route_file) as f:
         data = json.load(f)
 
     node_map = {
@@ -134,72 +135,45 @@ def _load_line38_from_json() -> RouteResponse:
         route.extend(coords)
         prev_last = route[-1]
 
-    # Hardcoded stops — same ones used in main.py and simulator.py.
-    # These are the actual Line 38 stops used for ETA calculations.
-    # If new lines with their own models are added, each should have
-    # its stops defined in a configuration file or database.
-    bus_stops = [
-        (-25.3863252, -57.4976859),
-        (-25.3786856, -57.4930827),
-        (-25.3694164, -57.4916613),
-        (-25.3584819, -57.4908329),
-        (-25.348588,  -57.5029725),
-        (-25.3370013, -57.5099294),
-        (-25.3314274, -57.5154413),
-        (-25.3193744, -57.5243842),
-        (-25.3108736, -57.5307552),
-        (-25.304031,  -57.5378214),
-        (-25.3062623, -57.5457233),
-        (-25.3078456, -57.552419 ),
-        (-25.3034737, -57.5603186),
-        (-25.2977134, -57.5714751),
-        (-25.2944599, -57.5789756),
-        (-25.2900301, -57.5890618),
-        (-25.2839356, -57.5878745),
-        (-25.2707073, -57.5838988),
-        (-25.2587977, -57.5798663),
-        (-25.2537729, -57.5749772),
-        (-25.2525967, -57.5772245),
-    ]
-
-    logger.info("Line 38 loaded from route_38.json: %d points", len(route[::2]))
-
-    # Street name per stop, precomputed offline via reverse geocoding
-    # (see backend/data/stop_names.json) — not looked up per request.
-    stop_names_path = Path(__file__).parent.parent / "data" / "stop_names.json"
-    try:
-        with open(stop_names_path, encoding="utf-8") as f:
-            stop_names_data = json.load(f)
-        stop_names = [entry["street"] for entry in stop_names_data["stops"]]
-    except FileNotFoundError:
-        stop_names = None
-        logger.warning("stop_names.json not found — RouteResponse.stop_names will be null.")
+    logger.info("%s loaded from %s: %d points", line.label, line.route_file.name, len(route[::2]))
 
     return RouteResponse(
         coordinates=[list(p) for p in route[::2]],
-        stops=[list(p) for p in bus_stops],
+        stops=[list(p) for p in line.bus_stops],
         relation_id=None,
         from_cache=None,
-        stop_names=stop_names,
+        stop_names=line.stop_names,
     )
 
 
 # Loaded once at startup — never blocks a request
-_LINEA38: RouteResponse = _load_line38_from_json()
+_STATIC_ROUTES: dict[str, RouteResponse] = {
+    route_id: _load_static_route(line) for route_id, line in LINES.items()
+}
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────
 
-@router.get("", response_model=RouteResponse, summary="Fixed Line 38 route")
-async def get_fixed_route():
+@router.get("", response_model=RouteResponse, summary="Fixed route for a known line")
+async def get_fixed_route(line: str = Query(DEFAULT_LINE, description="route_id, see GET /route/lines")):
     """
-    Returns the geometry of Line 38 loaded from route_38.json.
+    Returns the geometry of a locally-known line (see routes_config.LINES),
+    loaded from its raspberry-pi/route_*.json. Defaults to Line 38 for
+    backward compatibility with clients that don't pass `line`.
 
-    This is the endpoint currently used by the frontend and simulator.
-    It does not make any external HTTP calls — it responds instantly
-    from memory. The response contract remains unchanged.
+    Does not make any external HTTP calls — responds instantly from memory.
     """
-    return _LINEA38
+    return _STATIC_ROUTES.get(line, _STATIC_ROUTES[DEFAULT_LINE])
+
+
+@router.get(
+    "/lines",
+    response_model=list[LineInfo],
+    summary="Locally-known bus lines (for a line-picker UI)",
+)
+async def list_lines():
+    """Returns {route_id, label} for every line in routes_config.LINES."""
+    return [LineInfo(route_id=rid, label=line.label) for rid, line in LINES.items()]
 
 
 @router.get(

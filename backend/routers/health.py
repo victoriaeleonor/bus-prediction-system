@@ -10,7 +10,8 @@ Returns:
         "occupancy": true,       ← SUNT OD XGBoost model loaded
         "eta": true | false      ← false if the .pkl file was not found at startup
     },
-    "cached_routes": [3983243, 3984378]   ← relation_ids currently stored in memory
+    "cached_routes": [3983243, 3984378],   ← relation_ids currently stored in memory
+    "last_telemetry": {"38": {...}, "15-1": {...}}  ← last payload per route_id
 }
 
 The frontend does not currently consume this endpoint, but it is useful for
@@ -32,7 +33,7 @@ router = APIRouter(tags=["health"])
 @router.get("/health", summary="Server and models status")
 async def health(request: Request):
     models = request.app.state.models
-    last_payload = models.get("last_payload")
+    last_payload_by_route = models.get("last_payload_by_route", {})
 
     return {
         "status": "ok",
@@ -41,5 +42,7 @@ async def health(request: Request):
             "eta":       models.get("eta_model") is not None,
         },
         "cached_routes": list_cached_routes(),
-        "last_telemetry": last_payload.dict() if last_payload is not None else None,
+        "last_telemetry": {
+            route_id: payload.dict() for route_id, payload in last_payload_by_route.items()
+        },
     }

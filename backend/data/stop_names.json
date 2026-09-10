@@ -10,19 +10,19 @@
       "index": 1,
       "lat": -25.3786856,
       "lon": -57.4930827,
-      "street": "San Lorenzo"
+      "street": "Curupayty"
     },
     {
       "index": 2,
       "lat": -25.3694164,
       "lon": -57.4916613,
-      "street": "De la Victoria"
+      "street": "El paraguayo Independiente"
     },
     {
       "index": 3,
       "lat": -25.3584819,
       "lon": -57.4908329,
-      "street": "De la Victoria"
+      "street": "11 de Septiembre"
     },
     {
       "index": 4,
@@ -40,19 +40,19 @@
       "index": 6,
       "lat": -25.3314274,
       "lon": -57.5154413,
-      "street": "Mariscal Francisco Solano López"
+      "street": "Avenida Mariscal López"
     },
     {
       "index": 7,
       "lat": -25.3193744,
       "lon": -57.5243842,
-      "street": "Avenida Mariscal López"
+      "street": "Abay"
     },
     {
       "index": 8,
       "lat": -25.3108736,
       "lon": -57.5307552,
-      "street": "Avenida Mariscal López"
+      "street": "Dr Waldino Lovera"
     },
     {
       "index": 9,
@@ -64,55 +64,55 @@
       "index": 10,
       "lat": -25.3062623,
       "lon": -57.5457233,
-      "street": "Avenida Mariscal López"
+      "street": "Paraguarí"
     },
     {
       "index": 11,
       "lat": -25.3078456,
       "lon": -57.552419,
-      "street": "Emiliano Fernández Rivarola"
+      "street": "Avenida Mariscal Francisco Solano López"
     },
     {
       "index": 12,
       "lat": -25.3034737,
       "lon": -57.5603186,
-      "street": "Avenida Mariscal Francisco Solano López"
+      "street": "General Rogelio Benitez"
     },
     {
       "index": 13,
       "lat": -25.2977134,
       "lon": -57.5714751,
-      "street": "Avenida Mariscal Francisco Solano López"
+      "street": "Belgica"
     },
     {
       "index": 14,
       "lat": -25.2944599,
       "lon": -57.5789756,
-      "street": "Avenida Mariscal Francisco Solano López"
+      "street": "Doctor Francisco Morra"
     },
     {
       "index": 15,
       "lat": -25.2900301,
       "lon": -57.5890618,
-      "street": "Avenida Mariscal Francisco Solano López"
+      "street": "23 de Octubre"
     },
     {
       "index": 16,
       "lat": -25.2839356,
       "lon": -57.5878745,
-      "street": "Walt Disney"
+      "street": "Avenida Santísimo Sacramento"
     },
     {
       "index": 17,
       "lat": -25.2707073,
       "lon": -57.5838988,
-      "street": "Avenida Santísimo Sacramento"
+      "street": "Capitán José Domingo Lombardo"
     },
     {
       "index": 18,
       "lat": -25.2587977,
       "lon": -57.5798663,
-      "street": "Avenida Santísimo Sacramento"
+      "street": "Avenida Santísima Trinidad"
     },
     {
       "index": 19,
@@ -124,7 +124,7 @@
       "index": 20,
       "lat": -25.2525967,
       "lon": -57.5772245,
-      "street": "Avenida Primer Presidente"
+      "street": "Rotonda Jardín Botánico"
     }
   ]
 }

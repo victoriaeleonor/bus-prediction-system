@@ -1,0 +1,130 @@
+{
+  "stops": [
+    {
+      "index": 0,
+      "lat": -25.3770103,
+      "lon": -57.5846782,
+      "street": "Avenida Enrique Von Polesky"
+    },
+    {
+      "index": 1,
+      "lat": -25.3802046,
+      "lon": -57.5923358,
+      "street": "Avenida Teniente Francisco Américo Picco Palacios"
+    },
+    {
+      "index": 2,
+      "lat": -25.3840837,
+      "lon": -57.600789,
+      "street": "Río Aquidabán"
+    },
+    {
+      "index": 3,
+      "lat": -25.3809364,
+      "lon": -57.6075223,
+      "street": "Avenida Defensores del Chaco"
+    },
+    {
+      "index": 4,
+      "lat": -25.374072,
+      "lon": -57.6053603,
+      "street": "Los Alpes"
+    },
+    {
+      "index": 5,
+      "lat": -25.3670436,
+      "lon": -57.6012335,
+      "street": "General Diaz"
+    },
+    {
+      "index": 6,
+      "lat": -25.3601039,
+      "lon": -57.5971486,
+      "street": "Panambi Vera"
+    },
+    {
+      "index": 7,
+      "lat": -25.3531688,
+      "lon": -57.5930268,
+      "street": "Dr. Bernardo Ocampos"
+    },
+    {
+      "index": 8,
+      "lat": -25.3465087,
+      "lon": -57.5891773,
+      "street": "Teniente Rojas Silva"
+    },
+    {
+      "index": 9,
+      "lat": -25.3395993,
+      "lon": -57.5850491,
+      "street": "Ruta Nacional Mariscal López (Acceso Sur)"
+    },
+    {
+      "index": 10,
+      "lat": -25.3342156,
+      "lon": -57.5783753,
+      "street": "Morotî"
+    },
+    {
+      "index": 11,
+      "lat": -25.3315521,
+      "lon": -57.573606,
+      "street": "Cerro Corá"
+    },
+    {
+      "index": 12,
+      "lat": -25.3263976,
+      "lon": -57.5683834,
+      "street": "San José"
+    },
+    {
+      "index": 13,
+      "lat": -25.3213644,
+      "lon": -57.561914,
+      "street": "Guaraníes"
+    },
+    {
+      "index": 14,
+      "lat": -25.3155964,
+      "lon": -57.559501,
+      "street": "Cirilo Antonio Rivarola"
+    },
+    {
+      "index": 15,
+      "lat": -25.3164865,
+      "lon": -57.5657134,
+      "street": "Teresa Lamas Caríssimo"
+    },
+    {
+      "index": 16,
+      "lat": -25.3178783,
+      "lon": -57.5724406,
+      "street": "Teniente José Felix Lopez"
+    },
+    {
+      "index": 17,
+      "lat": -25.3253631,
+      "lon": -57.5747725,
+      "street": "Oscar Bottana"
+    },
+    {
+      "index": 18,
+      "lat": -25.3323874,
+      "lon": -57.5762037,
+      "street": "Tacuara"
+    },
+    {
+      "index": 19,
+      "lat": -25.337274,
+      "lon": -57.5824752,
+      "street": "Maká"
+    },
+    {
+      "index": 20,
+      "lat": -25.3434146,
+      "lon": -57.5872986,
+      "street": "Mariscal José Félix Estigarribia"
+    }
+  ]
+}

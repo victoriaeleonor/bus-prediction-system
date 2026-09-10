@@ -98,18 +98,20 @@
     padding: 16px;
     border-bottom: 1px solid var(--border);
   }
-  .bus-id {
+  #bus-card #line-select {
     font-family: var(--mono);
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--accent);
-    margin-bottom: 4px;
-  }
-  .bus-route {
-    font-size: 13px;
-    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    width: 100%;
     margin-bottom: 16px;
+    cursor: pointer;
   }
+  #bus-card #line-select:hover { border-color: var(--accent); }
   .stat-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -182,30 +184,6 @@
     text-align: right;
   }
 
-  /* history feed */
-  #history-feed { flex: 1; padding: 0; }
-  .feed-item {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 8px;
-    align-items: center;
-    font-size: 12px;
-    animation: fadeIn .3s ease;
-  }
-  @keyframes fadeIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
-  .feed-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .feed-time {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
-  }
-
   /* ── map ── */
   #map {
     width: 100%;
@@ -272,6 +250,11 @@
     padding: 8px 10px;
     font-family: var(--sans);
     font-size: 13px;
+    width: 100%;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
   }
   #trip-calc-btn, #my-stop-btn {
     background: var(--accent);
@@ -333,12 +316,11 @@
   <div class="section-label" data-i18n="activeBus">Active Bus</div>
 
   <div id="bus-card">
-    <div class="bus-id" id="s-bus-id">—</div>
-    <div class="bus-route" id="s-route" data-i18n="noData">sin datos</div>
+    <select id="line-select" title="Elegir línea / Choose line"></select>
     <div class="stat-row">
       <div class="stat-box">
         <div class="stat-label" data-i18n="eta">ETA</div>
-        <div class="stat-value" id="s-eta">—<span class="stat-unit">min</span></div>
+        <div class="stat-value" id="s-eta">—</div>
       </div>
       <div class="stat-box">
         <div class="stat-label" data-i18n="time">Time</div>
@@ -347,12 +329,12 @@
     </div>
     <div class="stat-row">
       <div class="stat-box">
-        <div class="stat-label" data-i18n="lat">Lat</div>
-        <div class="stat-value" id="s-lat" style="font-size:14px">—</div>
+        <div class="stat-label" data-i18n="speed">Speed</div>
+        <div class="stat-value" id="s-speed">—<span class="stat-unit">km/h</span></div>
       </div>
       <div class="stat-box">
-        <div class="stat-label" data-i18n="lon">Lon</div>
-        <div class="stat-value" id="s-lon" style="font-size:14px">—</div>
+        <div class="stat-label" data-i18n="nextStop">Next stop</div>
+        <div class="stat-value" id="s-next-stop" style="font-size:13px;">—</div>
       </div>
     </div>
   </div>
@@ -369,8 +351,8 @@
   <div class="section-label" data-i18n="myStopSection">When does my bus arrive?</div>
   <div id="my-stop-widget" style="padding:16px; border-bottom:1px solid var(--border);">
     <div class="trip-row">
-      <div style="display:flex; gap:8px;">
-        <select id="my-stop-select" style="flex:1;"></select>
+      <div style="display:flex; gap:8px; min-width:0;">
+        <select id="my-stop-select" style="flex:1; min-width:0;"></select>
         <button id="use-location-btn" title="" style="flex-shrink:0; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0 12px; cursor:pointer; font-size:15px;">📍</button>
       </div>
       <button id="my-stop-btn" data-i18n="checkEta">Check arrival</button>
@@ -403,9 +385,6 @@
       </div>
     </div>
   </div>
-
-  <div class="section-label" data-i18n="lastUpdates">Last Updates</div>
-  <div id="history-feed"></div>
 </aside>
 
 <!-- map -->
@@ -423,13 +402,29 @@ const WS_URL      = (location.protocol === 'https:' ? 'wss://' : 'ws://') + loca
 const PREDICT_URL = window.location.origin + '/predict/eta/broadcast';
 const TRIP_URL     = window.location.origin + '/predict/trip';
 
+// ── formatting helpers ──────────────────────────────────────────────────
+// Renders a minutes value as seconds below 1 min, "Nmin" below 1h, and
+// "Hh Nmin" beyond that, instead of raw fractional/triple-digit minutes.
+function formatDuration(totalMinutes) {
+  if (totalMinutes == null || isNaN(totalMinutes)) return '—';
+  let totalSeconds = Math.round(totalMinutes * 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  totalSeconds -= hours * 3600;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+  if (minutes > 0) return `${minutes}min`;
+  return `${seconds}s`;
+}
+
 // ── i18n ─────────────────────────────────────────────────────────────────
 const I18N = {
   es: {
     waitingData: 'esperando datos…', connectingLive: 'Conectando · En vivo',
     disconnectedRetry: 'desconectado · reintentando…',
-    activeBus: 'Bus Activo', noData: 'sin datos', eta: 'ETA', time: 'Hora',
-    lat: 'Lat', lon: 'Lon', occupancy: 'OCUPACIÓN', lastUpdates: 'Últimas Actualizaciones',
+    activeBus: 'Bus Activo', eta: 'ETA', time: 'Hora',
+    speed: 'Velocidad', nextStop: 'Próxima Parada', occupancy: 'OCUPACIÓN',
     tripPlanner: 'Planificador de Viaje', calculate: 'Calcular',
     etaToOrigin: 'El bus llega en', tripDuration: 'Duración del viaje', arrivalTime: 'Hora estimada',
     noDataHint: 'Iniciá el simulator.py<br>para ver el bus en tiempo real',
@@ -447,8 +442,8 @@ const I18N = {
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
     disconnectedRetry: 'disconnected · retrying…',
-    activeBus: 'Active Bus', noData: 'no data', eta: 'ETA', time: 'Time',
-    lat: 'Lat', lon: 'Lon', occupancy: 'OCCUPANCY', lastUpdates: 'Last Updates',
+    activeBus: 'Active Bus', eta: 'ETA', time: 'Time',
+    speed: 'Speed', nextStop: 'Next Stop', occupancy: 'OCCUPANCY',
     tripPlanner: 'Trip Planner', calculate: 'Calculate',
     etaToOrigin: 'Bus arrives in', tripDuration: 'Trip duration', arrivalTime: 'Estimated time',
     noDataHint: 'Start simulator.py<br>to see the bus in real time',
@@ -502,19 +497,29 @@ const stopIcon = L.divIcon({
 
 let ROUTE_STOPS = [];
 let STOP_NAMES  = [];
+let routeLayer  = null;
+let stopMarkers = [];
 
 function drawRoute({ coordinates, stops, stop_names }) {
   ROUTE_STOPS = stops;
   STOP_NAMES  = stop_names || [];
-  L.polyline(coordinates, {
+
+  // Remove the previous line's polyline/stop markers — drawRoute runs again
+  // every time the line dropdown changes, and layers don't self-replace.
+  if (routeLayer) map.removeLayer(routeLayer);
+  stopMarkers.forEach(m => map.removeLayer(m));
+  stopMarkers = [];
+
+  routeLayer = L.polyline(coordinates, {
     color: '#00d4aa', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
     const street = STOP_NAMES[i];
     const label  = 'Parada ' + (i + 1) + (street ? ' — ' + street : '');
-    L.marker(coords, { icon: stopIcon })
+    const marker = L.marker(coords, { icon: stopIcon })
      .addTo(map)
      .bindPopup('<b style="font-family:monospace">' + label + '</b>');
+    stopMarkers.push(marker);
   });
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
   populateStopSelects();
@@ -617,12 +622,12 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     const res = await fetch(TRIP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin_stop_id: stopId, destination_stop_id: stopId }),
+      body: JSON.stringify({ origin_stop_id: stopId, destination_stop_id: stopId, route_id: selectedLine }),
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
 
-    document.getElementById('my-stop-eta').textContent = `${d.eta_to_origin_min.toFixed(1)} min`;
+    document.getElementById('my-stop-eta').textContent = formatDuration(d.eta_to_origin_min);
     document.getElementById('my-stop-arrival').textContent =
       new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     resultBox.style.display = 'block';
@@ -662,12 +667,12 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
     const res = await fetch(TRIP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin_stop_id: origin, destination_stop_id: destination }),
+      body: JSON.stringify({ origin_stop_id: origin, destination_stop_id: destination, route_id: selectedLine }),
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
 
-    document.getElementById('trip-duration').textContent = `${d.trip_duration_min.toFixed(1)} min`;
+    document.getElementById('trip-duration').textContent = formatDuration(d.trip_duration_min);
     resultBox.style.display = 'block';
 
     if (d.bus_already_passed) {
@@ -683,16 +688,66 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
   }
 });
 
-function loadRoute(attempt = 1) {
-  fetch(window.location.origin + '/route')
+function loadRoute(lineId, attempt = 1) {
+  fetch(window.location.origin + '/route?line=' + encodeURIComponent(lineId))
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(drawRoute)
     .catch(err => {
       console.error(`Route fetch failed (attempt ${attempt}):`, err);
-      if (attempt < 5) setTimeout(() => loadRoute(attempt + 1), 2000 * attempt);
+      if (attempt < 5) setTimeout(() => loadRoute(lineId, attempt + 1), 2000 * attempt);
     });
 }
-loadRoute();
+
+// ── line picker ──────────────────────────────────────────────────────────
+let selectedLine = '38';
+let busStateByLine = {}; // last known PredictionResponse per route_id, so
+                          // switching lines shows data instantly if we already have it
+
+function switchLine(lineId) {
+  selectedLine = lineId;
+  loadRoute(lineId);
+
+  const cached = busStateByLine[lineId];
+  if (cached) {
+    document.getElementById('no-data').style.display = 'none';
+    setBusPosition(cached.lat, cached.lon, cached.occupancy_class);
+    updateSidebar(cached);
+  } else {
+    document.getElementById('no-data').style.display = '';
+    if (busMarker) { map.removeLayer(busMarker); busMarker = null; lastBusColor = null; }
+    firstMove = true;
+  }
+}
+
+function populateLineSelect() {
+  fetch(window.location.origin + '/route/lines')
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(lines => {
+      const sel = document.getElementById('line-select');
+      sel.innerHTML = '';
+      lines.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.route_id;
+        opt.textContent = l.label;
+        sel.appendChild(opt);
+      });
+      if (lines.length) {
+        selectedLine = lines[0].route_id;
+        sel.value = selectedLine;
+      }
+      switchLine(selectedLine);
+    })
+    .catch(err => {
+      console.error('Failed to load line list, defaulting to 38:', err);
+      switchLine(selectedLine);
+    });
+}
+
+document.getElementById('line-select').addEventListener('change', (e) => {
+  switchLine(e.target.value);
+});
+
+populateLineSelect();
 
 
 // ── bus marker ───────────────────────────────────────────────────────────
@@ -727,6 +782,7 @@ function setMyLocationMarker(lat, lon) {
 
 let busMarker = null;
 let firstMove = true;
+let lastBusColor = null;
 
 const OCC_COLORS = {
   low:       '#22c55e',
@@ -739,9 +795,15 @@ function setBusPosition(lat, lon, occClass) {
   const color = OCC_COLORS[occClass] || '#00d4aa';
   if (!busMarker) {
     busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
+    lastBusColor = color;
   } else {
     busMarker.setLatLng([lat, lon]);
-    busMarker.setIcon(makeBusIcon(color));
+    // Only rebuild the icon's DOM when the color actually changes —
+    // recreating it on every tick caused the marker to flicker/disappear.
+    if (color !== lastBusColor) {
+      busMarker.setIcon(makeBusIcon(color));
+      lastBusColor = color;
+    }
   }
   if (firstMove) {
     map.setView([lat, lon], 15);
@@ -753,11 +815,9 @@ function setBusPosition(lat, lon, occClass) {
 function updateSidebar(d) {
   document.getElementById('no-data').style.display = 'none';
 
-  document.getElementById('s-bus-id').textContent  = d.bus_id;
-  document.getElementById('s-route').textContent   = `${d.route}`;
-  document.getElementById('s-eta').innerHTML       = `${d.eta_minutes.toFixed(1)}<span class="stat-unit">min</span>`;
-  document.getElementById('s-lat').textContent     = d.lat.toFixed(4);
-  document.getElementById('s-lon').textContent     = d.lon.toFixed(4);
+  document.getElementById('s-eta').textContent     = formatDuration(d.eta_minutes);
+  document.getElementById('s-speed').innerHTML     = `${Math.round(d.speed_kmh ?? 0)}<span class="stat-unit">km/h</span>`;
+  document.getElementById('s-next-stop').textContent = d.next_stop || '—';
 
   const ts = new Date(d.timestamp);
   document.getElementById('s-time').textContent =
@@ -774,24 +834,6 @@ function updateSidebar(d) {
   const badge = document.getElementById('s-occ-badge');
   badge.textContent    = cls.replace('_', ' ').toUpperCase();
   badge.style.background = color;
-
-  // feed entry
-  addFeedItem(d, ts, color);
-}
-
-let feedCount = 0;
-function addFeedItem(d, ts, color) {
-  const feed = document.getElementById('history-feed');
-  const div  = document.createElement('div');
-  div.className = 'feed-item';
-  div.innerHTML = `
-    <div class="feed-dot" style="background:${color}"></div>
-    <div>${d.bus_id} · <span style="color:var(--muted)">${d.occupancy_class?.replace('_',' ')}</span> · ETA ${d.eta_minutes?.toFixed(1)}min</div>
-    <div class="feed-time">${ts.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
-  `;
-  feed.prepend(div);
-  feedCount++;
-  if (feedCount > 30) feed.lastChild?.remove();
 }
 
 // ── WebSocket connection ─────────────────────────────────────────────────
@@ -808,8 +850,13 @@ function connectWS() {
   ws.onmessage = (evt) => {
     try {
       const d = JSON.parse(evt.data);
-      setBusPosition(d.lat, d.lon, d.occupancy_class);
-      updateSidebar(d);
+      busStateByLine[d.route_id] = d;
+      // Both lines' simulators broadcast on the same socket — only touch
+      // the map/sidebar when the message matches the line currently shown.
+      if (d.route_id === selectedLine) {
+        setBusPosition(d.lat, d.lon, d.occupancy_class);
+        updateSidebar(d);
+      }
     } catch (e) { console.warn('parse error', e); }
   };
 
