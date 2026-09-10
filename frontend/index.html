@@ -532,7 +532,24 @@ let STOP_NAMES  = [];
 let routeLayer  = null;
 let stopMarkers = [];
 
-function drawRoute({ coordinates, stops, stop_names }) {
+// Each line runs exactly one bus (see raspberry-pi/simulator.py's LINES
+// registry: "38" -> bus_001, "15-1" -> bus_002). Route track color is keyed
+// by bus_id — not orange/red (--accent/--high/--very_high already use that
+// range) and not blue (already used by the "my location" marker) — so two
+// buses' tracks stay visually distinct from each other and from the rest
+// of the UI, and adding a third bus later is just one more color entry.
+const LINE_BUS_ID = { '38': 'bus_001', '15-1': 'bus_002' };
+const BUS_ROUTE_COLORS = {
+  bus_001: '#0891b2', // cyan/teal
+  bus_002: '#7c3aed', // violet
+};
+const DEFAULT_ROUTE_COLOR = '#0891b2';
+
+function routeColorForLine(lineId) {
+  return BUS_ROUTE_COLORS[LINE_BUS_ID[lineId]] || DEFAULT_ROUTE_COLOR;
+}
+
+function drawRoute({ coordinates, stops, stop_names }, lineId) {
   ROUTE_STOPS = stops;
   STOP_NAMES  = stop_names || [];
 
@@ -543,7 +560,7 @@ function drawRoute({ coordinates, stops, stop_names }) {
   stopMarkers = [];
 
   routeLayer = L.polyline(coordinates, {
-    color: '#c2410c', weight: 2, opacity: 0.4, dashArray: '6 6',
+    color: routeColorForLine(lineId), weight: 3, opacity: 0.7, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
     const marker = L.marker(coords, { icon: stopIcon }).addTo(map).bindPopup('');
@@ -724,7 +741,7 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
 function loadRoute(lineId, attempt = 1) {
   fetch(window.location.origin + '/route?line=' + encodeURIComponent(lineId))
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(drawRoute)
+    .then(data => drawRoute(data, lineId))
     .catch(err => {
       console.error(`Route fetch failed (attempt ${attempt}):`, err);
       if (attempt < 5) setTimeout(() => loadRoute(lineId, attempt + 1), 2000 * attempt);
@@ -742,14 +759,26 @@ function switchLine(lineId) {
 
   const cached = busStateByLine[lineId];
   if (cached) {
-    document.getElementById('no-data').style.display = 'none';
     setBusPosition(cached.lat, cached.lon, cached.occupancy_class);
     updateSidebar(cached);
   } else {
-    document.getElementById('no-data').style.display = '';
     if (busMarker) { map.removeLayer(busMarker); busMarker = null; lastBusColor = null; }
+    setNoDataVisible(true);
+    resetSidebar();
     firstMove = true;
   }
+}
+
+function resetSidebar() {
+  document.getElementById('s-eta').textContent       = '—';
+  document.getElementById('s-next-stop').textContent = '—';
+
+  document.getElementById('s-occ-fill').style.width      = '0%';
+  document.getElementById('s-occ-fill').style.background = '';
+  document.getElementById('s-occ-pct').textContent       = '0%';
+  const badge = document.getElementById('s-occ-badge');
+  badge.textContent      = '—';
+  badge.style.background = '';
 }
 
 function populateLineSelect() {
@@ -824,7 +853,12 @@ const OCC_COLORS = {
   very_high: '#ef4444',
 };
 
+function setNoDataVisible(visible) {
+  document.getElementById('no-data').style.display = visible ? '' : 'none';
+}
+
 function setBusPosition(lat, lon, occClass) {
+  setNoDataVisible(false); // showing a marker and the "no data" hint must never both be true
   const color = OCC_COLORS[occClass] || '#c2410c';
   if (!busMarker) {
     busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
@@ -846,7 +880,7 @@ function setBusPosition(lat, lon, occClass) {
 
 // ── sidebar update ───────────────────────────────────────────────────────
 function updateSidebar(d) {
-  document.getElementById('no-data').style.display = 'none';
+  setNoDataVisible(false);
 
   document.getElementById('s-eta').textContent     = formatDuration(d.eta_minutes);
   document.getElementById('s-next-stop').textContent = d.next_stop || '—';
