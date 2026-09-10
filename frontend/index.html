@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bus Prediction Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -15,12 +15,12 @@
     --border:   #dde1e7;
     --text:     #14181f;
     --muted:    #667085;
-    --accent:   #0f766e;
+    --accent:   #c2410c;
     --low:      #22c55e;
     --medium:   #f59e0b;
     --high:     #f97316;
     --very_high:#ef4444;
-    --mono: 'JetBrains Mono', monospace;
+    --mono: 'Space Grotesk', sans-serif;
     --sans: 'Inter', sans-serif;
   }
 
@@ -226,7 +226,7 @@
     width: 28px; height: 28px;
     border-radius: 50%;
     border: 2px solid #fff;
-    box-shadow: 0 0 0 4px rgba(15,118,110,.25), 0 0 12px rgba(15,118,110,.4);
+    box-shadow: 0 0 0 4px rgba(194,65,12,.25), 0 0 12px rgba(194,65,12,.4);
     animation: pulse 2s infinite;
     display: flex;
     align-items: center;
@@ -235,8 +235,8 @@
     line-height: 1;
   }
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(15,118,110,.25), 0 0 12px rgba(15,118,110,.4); }
-    50% { box-shadow: 0 0 0 8px rgba(15,118,110,.1), 0 0 20px rgba(15,118,110,.3); }
+    0%, 100% { box-shadow: 0 0 0 4px rgba(194,65,12,.25), 0 0 12px rgba(194,65,12,.4); }
+    50% { box-shadow: 0 0 0 8px rgba(194,65,12,.1), 0 0 20px rgba(194,65,12,.3); }
   }
 
   /* user location marker */
@@ -522,7 +522,7 @@ try {
 // ── route: loaded from backend ──────────────────────────────────────────
 const stopIcon = L.divIcon({
     className: '',
-    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #0f766e;border-radius:50%;"></div>',
+    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #c2410c;border-radius:50%;"></div>',
     iconSize: [10, 10],
     iconAnchor: [5, 5],
 });
@@ -543,7 +543,7 @@ function drawRoute({ coordinates, stops, stop_names }) {
   stopMarkers = [];
 
   routeLayer = L.polyline(coordinates, {
-    color: '#0f766e', weight: 2, opacity: 0.4, dashArray: '6 6',
+    color: '#c2410c', weight: 2, opacity: 0.4, dashArray: '6 6',
   }).addTo(map);
   stops.forEach((coords, i) => {
     const marker = L.marker(coords, { icon: stopIcon }).addTo(map).bindPopup('');
@@ -825,7 +825,7 @@ const OCC_COLORS = {
 };
 
 function setBusPosition(lat, lon, occClass) {
-  const color = OCC_COLORS[occClass] || '#0f766e';
+  const color = OCC_COLORS[occClass] || '#c2410c';
   if (!busMarker) {
     busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
     lastBusColor = color;
