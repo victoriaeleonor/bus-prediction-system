@@ -1,10 +1,17 @@
 import argparse
+import sys
 import time
 import random
 import json
 import requests
 from datetime import datetime
 from pathlib import Path
+
+# Windows consoles often default to a non-UTF-8 codepage (cp1252), which
+# can't encode characters like '✓' used in the print statements below —
+# without this, that print raises UnicodeEncodeError, which then gets
+# swallowed by load_route()'s broad except and misread as a file-read error.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ── line registry ────────────────────────────────────────────────────────
 # Each real line this simulator can drive. Mirrors backend/routes_config.py
@@ -75,11 +82,6 @@ LINES = {
 
 parser = argparse.ArgumentParser(description="Bus GPS simulator")
 parser.add_argument("--line", choices=list(LINES), default="38", help="which line to simulate")
-parser.add_argument(
-    "--backend-url",
-    default="http://localhost:8000/predict/eta/broadcast",
-    help="e.g. https://bus-prediction-system.onrender.com/predict/eta/broadcast",
-)
 args = parser.parse_args()
 CFG = LINES[args.line]
 
@@ -90,7 +92,12 @@ ROUTE_ID   = CFG["route_id"]
 BUS_STOPS  = CFG["bus_stops"]
 INTERVAL   = 5        # seconds between updates
 MAX_STOPS  = 100      # maximum number of route points to use (OSM fallback only)
-BACKEND_URL = args.backend_url
+
+# Backend URL — change the IP if the simulator runs on the Raspberry Pi
+# Same machine:    http://localhost:8000/predict/eta/broadcast
+# Raspberry Pi:    http://<YOUR-MAC-IP>:8000/predict/eta/broadcast
+#                  "http://192.168.X.X:8000/predict/eta/broadcast"
+BACKEND_URL = "http://localhost:8000/predict/eta/broadcast"
 
 # ── route loading ──────────────────────────────────────────────────────────
 
