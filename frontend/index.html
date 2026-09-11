@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bus Prediction Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -18,13 +20,8 @@
     --medium:   #f59e0b;
     --high:     #f97316;
     --very_high:#ef4444;
-    /* Georgia everywhere — both variables intentionally share one serif
-       stack now (kept as two names since call sites still distinguish
-       "label" text from "reading" text, even though they render the same
-       typeface). No web font to load: Georgia/Times New Roman ship with
-       the OS, so there's no Google Fonts request on the critical path. */
-    --mono: Georgia, 'Times New Roman', serif;
-    --sans: Georgia, 'Times New Roman', serif;
+    --mono: 'Space Grotesk', sans-serif;
+    --sans: 'Inter', sans-serif;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,12 +32,6 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--sans);
-    /* Georgia reads tighter than a sans-serif at the same size — a bit of
-       extra line-height keeps wrapped text (error messages, stop names)
-       from feeling cramped. Elements that need single-line tightness
-       (stat numbers, badges) already set their own line-height:1 and stay
-       unaffected. */
-    line-height: 1.5;
     /* 100vh on iOS Safari is measured with its address bar hidden, i.e.
        taller than what's actually on screen when it's showing — the page
        ends up taller than the visible area, so Safari can shift the whole
@@ -771,7 +762,7 @@ function applyI18n() {
   refreshAllStopIcons();
   if (myLocationMarker) {
     myLocationMarker.setIcon(makeMyLocationIcon());
-    myLocationMarker.setPopupContent(`<b style="font-family:Georgia,'Times New Roman',serif">📍 ${dict.youAreHere}</b>`);
+    myLocationMarker.setPopupContent(`<b style="font-family:monospace">📍 ${dict.youAreHere}</b>`);
   }
 }
 
@@ -1443,7 +1434,7 @@ function setMyLocationMarker(lat, lon) {
   if (!myLocationMarker) {
     myLocationMarker = L.marker([lat, lon], { icon: makeMyLocationIcon(), zIndexOffset: 500 })
       .addTo(map)
-      .bindPopup(`<b style="font-family:Georgia,'Times New Roman',serif">📍 ${I18N[currentLang].youAreHere}</b>`);
+      .bindPopup(`<b style="font-family:monospace">📍 ${I18N[currentLang].youAreHere}</b>`);
   } else {
     myLocationMarker.setLatLng([lat, lon]);
   }
