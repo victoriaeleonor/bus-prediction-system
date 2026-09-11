@@ -974,6 +974,7 @@ function resetTripResults() {
   document.getElementById('my-stop-error').style.display  = 'none';
   document.getElementById('trip-result').style.display    = 'none';
   document.getElementById('trip-error').style.display     = 'none';
+  myStopWidgetLive = false; // a stop index from the previous line means nothing here
 }
 
 function stopOptionLabel(i) {
@@ -1087,13 +1088,21 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
 });
 
 // ── quick "when does my bus arrive?" check (single stop) ───────────────────
-document.getElementById('my-stop-btn').addEventListener('click', async () => {
+// Extracted so the same check can run both on the button click AND
+// silently on every WS tick for the selected bus (see ws.onmessage) —
+// mirrors how the sidebar's ETA already updates live, instead of only
+// ever reflecting the instant the button was pressed.
+let myStopWidgetLive = false; // true once the user has checked at least once for the current stop/line
+
+async function checkMyStopArrival({ recenter = false, clearFirst = false } = {}) {
   const stopId    = parseInt(document.getElementById('my-stop-select').value, 10);
   const errorBox  = document.getElementById('my-stop-error');
   const resultBox = document.getElementById('my-stop-result');
 
-  errorBox.style.display  = 'none';
-  resultBox.style.display = 'none';
+  if (clearFirst) {
+    errorBox.style.display  = 'none';
+    resultBox.style.display = 'none';
+  }
 
   try {
     const res = await fetch(TRIP_URL, {
@@ -1104,31 +1113,42 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
 
-    document.getElementById('my-stop-eta').textContent = formatDuration(d.eta_to_origin_min);
-    // Build the arrival clock time from THIS device's own "now" plus the
-    // (timezone-agnostic) minutes the backend returned, instead of parsing
-    // d.total_arrival_time — that's an absolute timestamp computed from the
-    // server's clock (UTC on Render) with no timezone suffix, so browsers
-    // read it as their OWN local time and show a value hours off from
-    // reality (e.g. "02:48 a.m." when it's actually ~10pm locally).
-    const arrivalMs = Date.now() + (d.eta_to_origin_min + d.trip_duration_min) * 60000;
-    document.getElementById('my-stop-arrival').textContent =
-      new Date(arrivalMs).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-    resultBox.style.display = 'block';
-
-    if (ROUTE_STOPS[stopId]) map.setView(ROUTE_STOPS[stopId], 16, { animate: false });
-
     if (d.bus_already_passed) {
-      errorBox.style.color   = 'var(--medium)';
+      // eta_to_origin_min is 0 here — "arrives in 0s / at 10:12am" reads as
+      // real data but is meaningless once the bus already went by, so show
+      // only the "already passed" notice instead of both.
+      resultBox.style.display = 'none';
+      errorBox.style.color    = 'var(--medium)';
       setDynamicMessage(errorBox, 'busAlreadyPassed');
-      errorBox.style.display = 'block';
+      errorBox.style.display  = 'block';
+    } else {
+      document.getElementById('my-stop-eta').textContent = formatDuration(d.eta_to_origin_min);
+      // Build the arrival clock time from THIS device's own "now" plus the
+      // (timezone-agnostic) minutes the backend returned, instead of parsing
+      // d.total_arrival_time — that's an absolute timestamp computed from the
+      // server's clock (UTC on Render) with no timezone suffix, so browsers
+      // read it as their OWN local time and show a value hours off from
+      // reality (e.g. "02:48 a.m." when it's actually ~10pm locally).
+      const arrivalMs = Date.now() + (d.eta_to_origin_min + d.trip_duration_min) * 60000;
+      document.getElementById('my-stop-arrival').textContent =
+        new Date(arrivalMs).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      resultBox.style.display = 'block';
+      errorBox.style.display  = 'none';
     }
+
+    if (recenter && ROUTE_STOPS[stopId]) map.setView(ROUTE_STOPS[stopId], 16, { animate: false });
   } catch (err) {
     console.error('My-stop ETA error:', err);
-    errorBox.style.color   = 'var(--very_high)';
+    resultBox.style.display = 'none';
+    errorBox.style.color    = 'var(--very_high)';
     setDynamicMessage(errorBox, 'myStopErrorGeneric');
-    errorBox.style.display = 'block';
+    errorBox.style.display  = 'block';
   }
+}
+
+document.getElementById('my-stop-btn').addEventListener('click', () => {
+  myStopWidgetLive = true;
+  checkMyStopArrival({ recenter: true, clearFirst: true });
 });
 
 // ── trip planner ─────────────────────────────────────────────────────────
@@ -1427,13 +1447,20 @@ function makeBusIcon(occColor, busId, isSelected) {
 // Icon is a function (not a static constant) so applyI18n() can regenerate
 // it — "Estás aquí"/"You are here" needs to retranslate on a language switch
 // the same as everything else, without waiting for the marker to move.
+// The label itself is a one-time callout, not a permanent map annotation —
+// it fades after MY_LOCATION_LABEL_MS regardless of what the user does next
+// (myLocationLabelShown drives whether makeMyLocationIcon() renders it).
+const MY_LOCATION_LABEL_MS = 4000;
+let myLocationLabelShown = false;
+let myLocationLabelTimer = null;
+
 function makeMyLocationIcon() {
   return L.divIcon({
     className: '',
     html: `
       <div class="my-location-wrap" style="width:16px;height:16px;">
         <div class="my-location-dot"></div>
-        <div class="map-label map-label-here">${I18N[currentLang].youAreHere}</div>
+        ${myLocationLabelShown ? `<div class="map-label map-label-here">${I18N[currentLang].youAreHere}</div>` : ''}
       </div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10],
@@ -1443,13 +1470,20 @@ function makeMyLocationIcon() {
 let myLocationMarker = null;
 
 function setMyLocationMarker(lat, lon) {
+  myLocationLabelShown = true;
   if (!myLocationMarker) {
     myLocationMarker = L.marker([lat, lon], { icon: makeMyLocationIcon(), zIndexOffset: 500 })
       .addTo(map)
       .bindPopup(`<b style="font-family:monospace">📍 ${I18N[currentLang].youAreHere}</b>`);
   } else {
     myLocationMarker.setLatLng([lat, lon]);
+    myLocationMarker.setIcon(makeMyLocationIcon());
   }
+  clearTimeout(myLocationLabelTimer);
+  myLocationLabelTimer = setTimeout(() => {
+    myLocationLabelShown = false;
+    if (myLocationMarker) myLocationMarker.setIcon(makeMyLocationIcon());
+  }, MY_LOCATION_LABEL_MS);
 }
 
 let busMarkers    = {}; // one Leaflet marker per bus_id currently shown on the map
@@ -1597,6 +1631,10 @@ function connectWS() {
         updateSidebar(d);
         updateActiveStopMarker(d.lat, d.lon);
         refreshOccupancyForBus(d.bus_id);
+        // Keeps "¿Cuándo llega mi bus?" live the same way the sidebar ETA
+        // already is, instead of only ever reflecting the moment "Ver
+        // llegada" was clicked.
+        if (myStopWidgetLive) checkMyStopArrival();
       }
     } catch (e) { console.warn('parse error', e); }
   };
