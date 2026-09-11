@@ -82,6 +82,13 @@ LINES = {
 
 parser = argparse.ArgumentParser(description="Bus GPS simulator")
 parser.add_argument("--line", choices=list(LINES), default="38", help="which line to simulate")
+parser.add_argument(
+    "--backend-url",
+    default="http://localhost:8000/predict/eta/broadcast",
+    help="backend endpoint to POST telemetry to, e.g. "
+         "https://bus-prediction-system.onrender.com/predict/eta/broadcast "
+         "for the deployed instance (default: http://localhost:8000/predict/eta/broadcast)",
+)
 args = parser.parse_args()
 CFG = LINES[args.line]
 
@@ -93,11 +100,10 @@ BUS_STOPS  = CFG["bus_stops"]
 INTERVAL   = 5        # seconds between updates
 MAX_STOPS  = 100      # maximum number of route points to use (OSM fallback only)
 
-# Backend URL — change the IP if the simulator runs on the Raspberry Pi
-# Same machine:    http://localhost:8000/predict/eta/broadcast
-# Raspberry Pi:    http://<YOUR-MAC-IP>:8000/predict/eta/broadcast
-#                  "http://192.168.X.X:8000/predict/eta/broadcast"
-BACKEND_URL = "http://localhost:8000/predict/eta/broadcast"
+# Backend URL — override with --backend-url. Points at localhost by default;
+# pass your Render app's URL to feed the deployed dashboard instead of a
+# local server (e.g. --backend-url https://bus-prediction-system.onrender.com/predict/eta/broadcast).
+BACKEND_URL = args.backend_url
 
 # ── route loading ──────────────────────────────────────────────────────────
 
