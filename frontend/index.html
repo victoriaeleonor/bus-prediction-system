@@ -284,6 +284,34 @@
     100% { transform: scale(2.5); opacity: 0; }
   }
 
+  /* Selection rings — one per selector (my-stop / origin / destination) so
+     picking the same stop in more than one selector shows as concentric
+     rings instead of one style overwriting another. */
+  .stop-select-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    border-radius: 50%;
+    border: 3px solid;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+
+  /* hover tooltip for stop markers */
+  .stop-tooltip {
+    background: rgba(20,24,31,.92);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .leaflet-tooltip-top.stop-tooltip::before {
+    border-top-color: rgba(20,24,31,.92); /* recolor Leaflet's built-in arrow, don't hide it */
+  }
+
   /* ── no data state ── */
   #no-data {
     position: absolute;
@@ -562,22 +590,63 @@ try {
 const STOP_COLOR        = '#6366f1'; // indigo — normal stops
 const STOP_ACTIVE_COLOR = '#f59e0b'; // gold/amber — the bus's next stop
 
-function makeStopIcon(number, isActive) {
+// Selector highlight rings — distinct from the route/bus/active-stop
+// colors already in use, and distinct from each other so origin vs
+// destination is obvious at a glance. Drawn as separate concentric rings
+// (not a single overwritten color) so selecting the same stop in more
+// than one dropdown at once shows as stacked rings instead of one
+// selector's highlight silently replacing another's.
+const SELECT_RING_COLORS = {
+  myStop:      '#ec4899', // pink   — "¿Cuándo llega mi bus?"
+  origin:      '#22c55e', // green  — trip planner origin
+  destination: '#a855f7', // purple — trip planner destination
+};
+
+function makeStopIcon(number, isActive, selection = {}) {
   const size     = isActive ? 28 : 22;
   const color    = isActive ? STOP_ACTIVE_COLOR : STOP_COLOR;
   const anim     = isActive ? 'stopPulseActive' : 'stopPulse';
   const duration = isActive ? '1.3s' : '2.6s';
   const fontSize = isActive ? 12 : 10;
+
+  const ringColors = ['myStop', 'origin', 'destination']
+    .filter(key => selection[key])
+    .map(key => SELECT_RING_COLORS[key]);
+  const ringsHtml = ringColors.map((ringColor, i) => {
+    const d = size + 12 + i * 9; // each extra ring sits a bit further out, concentric
+    const off = d / 2;
+    return `<div class="stop-select-ring" style="width:${d}px;height:${d}px;margin-top:-${off}px;margin-left:-${off}px;border-color:${ringColor};"></div>`;
+  }).join('');
+
   return L.divIcon({
     className: '',
     html: `
       <div class="stop-marker-wrap" style="width:${size}px;height:${size}px;">
+        ${ringsHtml}
         <div class="stop-pulse" style="background:${color}; animation-name:${anim}; animation-duration:${duration};"></div>
         <div class="stop-dot" style="width:${size}px;height:${size}px;background:${color};font-size:${fontSize}px;">${number}</div>
       </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
+}
+
+function selectionStateFor(i) {
+  const val = id => { const v = document.getElementById(id).value; return v === '' ? null : parseInt(v, 10); };
+  return {
+    myStop:      i === val('my-stop-select'),
+    origin:      i === val('trip-origin'),
+    destination: i === val('trip-destination'),
+  };
+}
+
+function rebuildStopIcon(i) {
+  if (!stopMarkers[i]) return;
+  stopMarkers[i].setIcon(makeStopIcon(i + 1, i === activeStopIndex, selectionStateFor(i)));
+}
+
+function refreshAllStopIcons() {
+  stopMarkers.forEach((_, i) => rebuildStopIcon(i));
 }
 
 let ROUTE_STOPS = [];
@@ -630,14 +699,17 @@ function drawRoute({ coordinates, stops, stop_names }, lineId) {
   stops.forEach((coords, i) => {
     // Leaflet's default markerPane sits above the overlayPane the polyline
     // lives in, so stop numbers stay legible over the route line already.
-    const marker = L.marker(coords, { icon: makeStopIcon(i + 1, false) }).addTo(map).bindPopup('');
-    // Compute the label at popup-open time (not here) so it always reflects
-    // the current language — this runs once at load, applyI18n() doesn't.
-    marker.on('popupopen', () => {
-      marker.setPopupContent('<b style="font-family:monospace">' + stopOptionLabel(i) + '</b>');
+    const marker = L.marker(coords, { icon: makeStopIcon(i + 1, false) }).addTo(map);
+    // Hover tooltip (not a click-required popup) shows the stop name.
+    // Bound with empty content and filled in on open (rather than baked in
+    // now) so it always reflects the current language even after a switch.
+    marker.bindTooltip('', { permanent: false, direction: 'top', offset: [0, -12], className: 'stop-tooltip' });
+    marker.on('tooltipopen', () => {
+      marker.setTooltipContent(stopOptionLabel(i));
     });
     stopMarkers.push(marker);
   });
+  refreshAllStopIcons(); // apply whatever the 3 stop selectors already have selected
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
   populateStopSelects();
 }
@@ -689,6 +761,13 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.asin(Math.sqrt(a));
 }
 
+// Highlight the corresponding map marker the instant a stop selector
+// changes — same rebuildStopIcon()/selectionStateFor() path drawRoute()
+// and setActiveStop() already use, so rings never fall out of sync.
+['my-stop-select', 'trip-origin', 'trip-destination'].forEach(id => {
+  document.getElementById(id).addEventListener('change', refreshAllStopIcons);
+});
+
 document.getElementById('use-location-btn').addEventListener('click', () => {
   const errorBox = document.getElementById('my-stop-error');
   const dict     = I18N[currentLang];
@@ -710,6 +789,7 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
         if (d < bestDist) { bestDist = d; bestIdx = i; }
       });
       document.getElementById('my-stop-select').value = bestIdx;
+      refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
       setMyLocationMarker(latitude, longitude);
       errorBox.style.color   = 'var(--accent)';
       errorBox.textContent   = dict.locationSet;
@@ -951,13 +1031,12 @@ function setBusPosition(lat, lon, occClass) {
 // two affected icons instead of rebuilding all 21 markers on every tick.
 function setActiveStop(idx) {
   if (idx === activeStopIndex) return;
-  if (activeStopIndex !== null && stopMarkers[activeStopIndex]) {
-    stopMarkers[activeStopIndex].setIcon(makeStopIcon(activeStopIndex + 1, false));
-  }
-  if (stopMarkers[idx]) {
-    stopMarkers[idx].setIcon(makeStopIcon(idx + 1, true));
-  }
+  const prevIdx = activeStopIndex;
   activeStopIndex = idx;
+  // Rebuild through rebuildStopIcon() (not a bare makeStopIcon(..., false))
+  // so any selection rings already on these two stops survive the swap.
+  if (prevIdx !== null) rebuildStopIcon(prevIdx);
+  rebuildStopIcon(idx);
 }
 
 function updateActiveStopMarker(lat, lon) {
