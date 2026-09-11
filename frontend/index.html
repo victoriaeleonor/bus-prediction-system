@@ -248,6 +248,42 @@
     box-shadow: 0 0 0 4px rgba(59,130,246,.3), 0 0 10px rgba(59,130,246,.5);
   }
 
+  /* numbered stop markers */
+  .stop-marker-wrap { position: relative; }
+  .stop-pulse {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    animation-timing-function: ease-out;
+    animation-iteration-count: infinite;
+    will-change: transform, opacity;
+    pointer-events: none;
+  }
+  .stop-dot {
+    position: relative;
+    z-index: 2;
+    border-radius: 50%;
+    color: #fff;
+    border: 2px solid #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  @keyframes stopPulse {
+    0%   { transform: scale(1);   opacity: .55; }
+    70%  { transform: scale(2.1); opacity: 0; }
+    100% { transform: scale(2.1); opacity: 0; }
+  }
+  @keyframes stopPulseActive {
+    0%   { transform: scale(1);   opacity: .8; }
+    60%  { transform: scale(2.5); opacity: 0; }
+    100% { transform: scale(2.5); opacity: 0; }
+  }
+
   /* ── no data state ── */
   #no-data {
     position: absolute;
@@ -520,17 +556,36 @@ try {
 } catch (e) {}
 
 // ── route: loaded from backend ──────────────────────────────────────────
-const stopIcon = L.divIcon({
+// Stop marker colors: not orange/red (route accent + occupancy badges
+// already live there) and not the "my location" marker's blue, so all
+// three stay visually distinct on the map.
+const STOP_COLOR        = '#6366f1'; // indigo — normal stops
+const STOP_ACTIVE_COLOR = '#f59e0b'; // gold/amber — the bus's next stop
+
+function makeStopIcon(number, isActive) {
+  const size     = isActive ? 28 : 22;
+  const color    = isActive ? STOP_ACTIVE_COLOR : STOP_COLOR;
+  const anim     = isActive ? 'stopPulseActive' : 'stopPulse';
+  const duration = isActive ? '1.3s' : '2.6s';
+  const fontSize = isActive ? 12 : 10;
+  return L.divIcon({
     className: '',
-    html: '<div style="width:10px;height:10px;background:#1a1f2e;border:2px solid #c2410c;border-radius:50%;"></div>',
-    iconSize: [10, 10],
-    iconAnchor: [5, 5],
-});
+    html: `
+      <div class="stop-marker-wrap" style="width:${size}px;height:${size}px;">
+        <div class="stop-pulse" style="background:${color}; animation-name:${anim}; animation-duration:${duration};"></div>
+        <div class="stop-dot" style="width:${size}px;height:${size}px;background:${color};font-size:${fontSize}px;">${number}</div>
+      </div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
 
 let ROUTE_STOPS = [];
 let STOP_NAMES  = [];
-let routeLayer  = null;
-let stopMarkers = [];
+let routeOutline = null;
+let routeLayer   = null;
+let stopMarkers  = [];
+let activeStopIndex = null; // index of ROUTE_STOPS closest to the bus right now
 
 // Each line runs exactly one bus (see raspberry-pi/simulator.py's LINES
 // registry: "38" -> bus_001, "15-1" -> bus_002). Route track color is keyed
@@ -555,15 +610,27 @@ function drawRoute({ coordinates, stops, stop_names }, lineId) {
 
   // Remove the previous line's polyline/stop markers — drawRoute runs again
   // every time the line dropdown changes, and layers don't self-replace.
+  if (routeOutline) map.removeLayer(routeOutline);
   if (routeLayer) map.removeLayer(routeLayer);
   stopMarkers.forEach(m => map.removeLayer(m));
   stopMarkers = [];
+  activeStopIndex = null;
 
-  routeLayer = L.polyline(coordinates, {
-    color: routeColorForLine(lineId), weight: 3, opacity: 0.7, dashArray: '6 6',
+  // One continuous, solid track: a wide dark outline underneath (so the
+  // route reads clearly over the light OSM tiles regardless of what's
+  // under it) plus the bus's own color on top — no dashArray, no
+  // per-segment polylines, just the full coordinate array in one line.
+  routeOutline = L.polyline(coordinates, {
+    color: '#1e293b', weight: 7, opacity: 0.35, lineJoin: 'round', lineCap: 'round',
   }).addTo(map);
+  routeLayer = L.polyline(coordinates, {
+    color: routeColorForLine(lineId), weight: 4, opacity: 1, lineJoin: 'round', lineCap: 'round',
+  }).addTo(map);
+
   stops.forEach((coords, i) => {
-    const marker = L.marker(coords, { icon: stopIcon }).addTo(map).bindPopup('');
+    // Leaflet's default markerPane sits above the overlayPane the polyline
+    // lives in, so stop numbers stay legible over the route line already.
+    const marker = L.marker(coords, { icon: makeStopIcon(i + 1, false) }).addTo(map).bindPopup('');
     // Compute the label at popup-open time (not here) so it always reflects
     // the current language — this runs once at load, applyI18n() doesn't.
     marker.on('popupopen', () => {
@@ -876,6 +943,28 @@ function setBusPosition(lat, lon, occClass) {
     map.setView([lat, lon], 15);
     firstMove = false;
   }
+  updateActiveStopMarker(lat, lon);
+}
+
+// Highlights whichever stop marker is geographically closest to the bus
+// right now (the "próxima parada" shown in the sidebar) — swaps just the
+// two affected icons instead of rebuilding all 21 markers on every tick.
+function updateActiveStopMarker(lat, lon) {
+  if (!ROUTE_STOPS.length) return;
+  let nearestIdx = 0, nearestDist = Infinity;
+  ROUTE_STOPS.forEach(([slat, slon], i) => {
+    const d = haversineMeters(lat, lon, slat, slon);
+    if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+  });
+  if (nearestIdx === activeStopIndex) return;
+
+  if (activeStopIndex !== null && stopMarkers[activeStopIndex]) {
+    stopMarkers[activeStopIndex].setIcon(makeStopIcon(activeStopIndex + 1, false));
+  }
+  if (stopMarkers[nearestIdx]) {
+    stopMarkers[nearestIdx].setIcon(makeStopIcon(nearestIdx + 1, true));
+  }
+  activeStopIndex = nearestIdx;
 }
 
 // ── sidebar update ───────────────────────────────────────────────────────
