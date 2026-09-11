@@ -829,6 +829,8 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
       new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     resultBox.style.display = 'block';
 
+    if (ROUTE_STOPS[stopId]) map.setView(ROUTE_STOPS[stopId], 16, { animate: false });
+
     if (d.bus_already_passed) {
       errorBox.style.color   = 'var(--medium)';
       errorBox.textContent   = dict.busAlreadyPassed;
@@ -871,6 +873,14 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
 
     document.getElementById('trip-duration').textContent = formatDuration(d.trip_duration_min);
     resultBox.style.display = 'block';
+
+    if (ROUTE_STOPS[origin] && ROUTE_STOPS[destination]) {
+      if (origin === destination) {
+        map.setView(ROUTE_STOPS[origin], 16, { animate: false });
+      } else {
+        map.fitBounds([ROUTE_STOPS[origin], ROUTE_STOPS[destination]], { padding: [60, 60], animate: false });
+      }
+    }
 
     if (d.bus_already_passed) {
       errorBox.style.color   = 'var(--medium)';
