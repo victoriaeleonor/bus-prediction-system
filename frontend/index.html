@@ -806,6 +806,7 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
       document.getElementById('my-stop-select').value = bestIdx;
       refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
       setMyLocationMarker(latitude, longitude);
+      map.fitBounds([[latitude, longitude], ROUTE_STOPS[bestIdx]], { padding: [60, 60], animate: false });
       errorBox.style.color   = 'var(--accent)';
       errorBox.textContent   = dict.locationSet;
       errorBox.style.display = 'block';
