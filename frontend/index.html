@@ -276,29 +276,17 @@
     line-height: 1;
   }
   .bus-dot.selected { border-width: 4px; }
-  /* One named pulse per bus identity color (bus-dot's glow can't just read
-     an inline box-shadow — @keyframes fully defines that property for every
-     frame, overriding whatever was set inline — so each bus color gets its
-     own keyframe instead of trying to parameterize one). */
-  @keyframes busPulseCyan {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(8,145,178,.3), 0 0 12px rgba(8,145,178,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(8,145,178,.12), 0 0 20px rgba(8,145,178,.35); }
+  /* One named pulse per travel direction (bus-dot's glow can't just read an
+     inline box-shadow — @keyframes fully defines that property for every
+     frame, overriding whatever was set inline — so each direction color
+     gets its own keyframe instead of trying to parameterize one). */
+  @keyframes busPulseOutbound {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(15,118,110,.3), 0 0 12px rgba(15,118,110,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(15,118,110,.12), 0 0 20px rgba(15,118,110,.35); }
   }
-  @keyframes busPulseLime {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(132,204,22,.3), 0 0 12px rgba(132,204,22,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(132,204,22,.12), 0 0 20px rgba(132,204,22,.35); }
-  }
-  @keyframes busPulseViolet {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(124,58,237,.3), 0 0 12px rgba(124,58,237,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(124,58,237,.12), 0 0 20px rgba(124,58,237,.35); }
-  }
-  @keyframes busPulsePink {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(219,39,119,.3), 0 0 12px rgba(219,39,119,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(219,39,119,.12), 0 0 20px rgba(219,39,119,.35); }
-  }
-  @keyframes busPulseBlue {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(37,99,235,.3), 0 0 12px rgba(37,99,235,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(37,99,235,.12), 0 0 20px rgba(37,99,235,.35); }
+  @keyframes busPulseReturn {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(192,38,211,.3), 0 0 12px rgba(192,38,211,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(192,38,211,.12), 0 0 20px rgba(192,38,211,.35); }
   }
 
   /* user location marker */
@@ -1325,7 +1313,7 @@ function switchLine(lineId) {
   // Rebuild a marker for every bus already known for this line (not just
   // the selected one) — e.g. switched away and back after both started sending.
   Object.values(busStateByBus).forEach(b => {
-    if (b.route_id === lineId) setBusPosition(b.bus_id, b.lat, b.lon, b.occupancy_class);
+    if (b.route_id === lineId) setBusPosition(b.bus_id, b.lat, b.lon, b.occupancy_class, b.travel_direction);
   });
 }
 
@@ -1498,21 +1486,20 @@ populateLineSelect();
 
 
 // ── bus marker ───────────────────────────────────────────────────────────
-// Each bus keeps a fixed identity color (border/glow) regardless of line
-// switching, distinct from occupancy (the dot's fill) so both pieces of
-// information stay visible at once. Primary buses reuse their line's own
-// route-track color (bus_001/bus_002) for visual consistency; the second,
-// staggered-start bus on each line gets its own new color.
-const BUS_ACCENT = {
-  bus_001: { color: '#0891b2', pulse: 'busPulseCyan' },
-  bus_003: { color: '#84cc16', pulse: 'busPulseLime' },
-  bus_002: { color: '#7c3aed', pulse: 'busPulseViolet' },
-  bus_004: { color: '#db2777', pulse: 'busPulsePink' },
-  bus_006: { color: '#2563eb', pulse: 'busPulseBlue' },
+// Border/glow color shows which way the bus is CURRENTLY traveling — every
+// bus does the full route both ways in a loop, so this is a live property
+// of the tick, not a fixed identity per bus_id (a bus flips color the
+// instant it reaches either end and turns around). Distinct from occupancy
+// (the dot's fill), so both pieces of information stay visible at once.
+// Which specific bus it is (bus_001, bus_003, ...) is still available by
+// tapping it — see the sidebar/popup's "Bus NNN" label.
+const DIRECTION_ACCENT = {
+  1:  { color: '#0f766e', pulse: 'busPulseOutbound' }, // ida
+  '-1': { color: '#c026d3', pulse: 'busPulseReturn' }, // vuelta
 };
 
-function makeBusIcon(occColor, busId, isSelected) {
-  const accent = BUS_ACCENT[busId] || { color: '#c2410c', pulse: 'busPulseCyan' };
+function makeBusIcon(occColor, direction, isSelected) {
+  const accent = DIRECTION_ACCENT[direction] || DIRECTION_ACCENT[1];
   // Enlarged from 26/34 — the bus is the map's main subject, everything
   // else (stops, rings, labels) should read as secondary to it.
   const size = isSelected ? 46 : 36;
@@ -1597,17 +1584,17 @@ function setNoDataVisible(visible) {
 }
 
 // Renders/moves ONE bus's marker. Called for every bus of the currently
-// selected line (not just the primary) so both buses show up on the map
-// at once, each in its own BUS_ACCENT color; whichever is picked in
-// the currently selected bus (click a marker) is drawn larger with a stronger pulse (see makeBusIcon).
-function setBusPosition(busId, lat, lon, occClass) {
+// selected line (not just the primary) so all of them show up on the map
+// at once, each colored by its current travel direction; whichever is
+// picked (click a marker) is drawn larger with a stronger pulse (see makeBusIcon).
+function setBusPosition(busId, lat, lon, occClass, direction) {
   setNoDataVisible(false); // showing a marker and the "no data" hint must never both be true
   const occColor    = OCC_COLORS[occClass] || '#c2410c';
   const isSelected  = busId === selectedBus;
-  const iconKey     = occColor + '|' + isSelected;
+  const iconKey     = occColor + '|' + direction + '|' + isSelected;
 
   if (!busMarkers[busId]) {
-    busMarkers[busId] = L.marker([lat, lon], { icon: makeBusIcon(occColor, busId, isSelected) })
+    busMarkers[busId] = L.marker([lat, lon], { icon: makeBusIcon(occColor, direction, isSelected) })
       .addTo(map)
       .bindPopup('', { closeButton: false, className: 'bus-popup', offset: [0, -14] })
       .on('click', () => selectBus(busId));
@@ -1617,7 +1604,7 @@ function setBusPosition(busId, lat, lon, occClass) {
     // Only rebuild the icon's DOM when something visible actually changed —
     // recreating it on every tick caused the marker to flicker/disappear.
     if (lastBusIconKey[busId] !== iconKey) {
-      busMarkers[busId].setIcon(makeBusIcon(occColor, busId, isSelected));
+      busMarkers[busId].setIcon(makeBusIcon(occColor, direction, isSelected));
       lastBusIconKey[busId] = iconKey;
     }
   }
@@ -1629,15 +1616,16 @@ function setBusPosition(busId, lat, lon, occClass) {
 
 // Re-applies the "selected" emphasis (bigger + stronger pulse) to whichever
 // bus is currently selected — called when that selection
-// changes, using each bus's own last known occupancy color rather than
+// changes, using each bus's own last known occupancy/direction rather than
 // waiting for its next tick to visually update.
 function refreshBusMarkerEmphasis() {
   Object.keys(busMarkers).forEach(busId => {
-    const state    = busStateByBus[busId];
-    const occColor = OCC_COLORS[state?.occupancy_class] || '#c2410c';
+    const state     = busStateByBus[busId];
+    const occColor  = OCC_COLORS[state?.occupancy_class] || '#c2410c';
+    const direction = state?.travel_direction ?? 1;
     const isSelected = busId === selectedBus;
-    busMarkers[busId].setIcon(makeBusIcon(occColor, busId, isSelected));
-    lastBusIconKey[busId] = occColor + '|' + isSelected;
+    busMarkers[busId].setIcon(makeBusIcon(occColor, direction, isSelected));
+    lastBusIconKey[busId] = occColor + '|' + direction + '|' + isSelected;
   });
 }
 
@@ -1717,7 +1705,7 @@ function connectWS() {
       if (d.route_id !== selectedLine) return; // a different line's bus — not shown here at all
 
       // Every bus of the current line gets its own marker on the map...
-      setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class);
+      setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class, d.travel_direction);
 
       // ...but the whole sidebar (ETA, next stop, OCUPACIÓN) only follows
       // whichever bus is currently selected — click a bus on the map to

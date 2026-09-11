@@ -114,6 +114,7 @@ class PredictionResponse(BaseModel):
     hour: int
     day_of_week: int
     is_rush_hour: int
+    travel_direction: int = 1  # +1 outbound, -1 on the return leg — lets clients color/label by direction
 
 
 class OccupancyForViewerRequest(BaseModel):
@@ -414,6 +415,7 @@ async def predict(payload: BusPayload, request: Request):
         hour            = payload.hour,
         day_of_week     = payload.day_of_week,
         is_rush_hour    = payload.is_rush_hour,
+        travel_direction = payload.travel_direction,
     )
 
 
