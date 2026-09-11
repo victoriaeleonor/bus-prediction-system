@@ -68,6 +68,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["predictions"])
 
+# Each line can now run more than one bus (see raspberry-pi/simulator.py's
+# LINES registry — bus_ids[0] is the line's "primary"). /predict/trip and
+# the sidebar's per-line state (last_payload_by_route) only ever look at
+# the primary bus, so adding a second bus to a line doesn't make that
+# single-slot cache flicker between two buses' positions. Every bus's own
+# state is still tracked independently in last_payload_by_bus, keyed by
+# bus_id, for endpoints/broadcasts that care about a specific bus.
+PRIMARY_BUS_ID = {"38": "bus_001", "15-1": "bus_002"}
+
 
 # ── schemas ────────────────────────────────────────────────────────────────
 # Same fields as the original main.py — the simulator does not need changes.
@@ -351,9 +360,17 @@ async def predict(payload: BusPayload, request: Request):
     Used by the simulator and (in the future) by the actual Raspberry Pi.
     """
     models = request.app.state.models
+    # Every bus's own latest telemetry, keyed by bus_id — powers the
+    # occupancy-by-selected-bus feature without touching last_payload_by_route.
+    models.setdefault("last_payload_by_bus", {})[payload.bus_id] = payload
+
     # Latest known telemetry per line, used by /predict/trip — keyed by
     # route_id so two lines running concurrently don't clobber each other.
-    models.setdefault("last_payload_by_route", {})[payload.route_id] = payload
+    # Only the line's primary bus writes here: with two buses per line now,
+    # letting either one overwrite this single slot would make the trip
+    # planner's ETA flicker between two different buses' positions.
+    if payload.bus_id == PRIMARY_BUS_ID.get(payload.route_id, payload.bus_id):
+        models.setdefault("last_payload_by_route", {})[payload.route_id] = payload
 
     line = get_line(payload.route_id)
     occ_class, occ_pct = _predict_occupancy(payload, models)

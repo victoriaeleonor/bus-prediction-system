@@ -17,9 +17,14 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 # Each real line this simulator can drive. Mirrors backend/routes_config.py
 # (kept as a separate, lightweight copy here since this script runs
 # standalone, without importing the backend package).
+#
+# bus_ids[0] is the line's primary bus — it starts immediately. Any other
+# bus_ids start staggered: only once the primary has passed Parada 1 (see
+# the main loop), so two buses on the same line never leave the terminal
+# stacked on top of each other.
 LINES = {
     "38": {
-        "bus_id": "bus_001",
+        "bus_ids": ["bus_001", "bus_003"],
         "route_name": "Línea 38",
         "route_id": "38",
         "route_file": "route_38.json",
@@ -49,7 +54,7 @@ LINES = {
         ],
     },
     "15-1": {
-        "bus_id": "bus_002",
+        "bus_ids": ["bus_002", "bus_004"],
         "route_name": "Línea 15-1",
         "route_id": "15-1",
         "route_file": "route_15_1.json",
@@ -96,7 +101,7 @@ args = parser.parse_args()
 CFG = LINES[args.line]
 
 # ── configuration ──────────────────────────────────────────────────────────
-BUS_ID     = CFG["bus_id"]
+BUS_IDS    = CFG["bus_ids"]  # [primary, ...staggered extras] — see LINES comment
 ROUTE_NAME = CFG["route_name"]
 ROUTE_ID   = CFG["route_id"]
 BUS_STOPS  = CFG["bus_stops"]
@@ -268,66 +273,7 @@ def load_route():
 ROUTE_COORDINATES = load_route()
 print(f"Route ready: {len(ROUTE_COORDINATES)} GPS points\n")
 
-# ── helpers ────────────────────────────────────────────────────────────────
-
-# ── speed tracker (stateful) ───────────────────────────────────────────────
-_prev_lat: float = None
-_prev_lon: float = None
-_prev_time: float = None
-_smoothed_speed: float = 0.0
-
-
-def compute_speed_kmh(lat, lon):
-    """Compute smoothed speed in km/h from the last known position.
-
-    The route's GPS points (from OSM) aren't evenly spaced — curves have many
-    points close together, straight stretches have few far apart — so the
-    raw distance/time between two consecutive points swings wildly from tick
-    to tick. Exponentially smoothing against the previous reading damps
-    those artifacts into something a real bus's speed could plausibly do.
-    """
-    global _prev_lat, _prev_lon, _prev_time, _smoothed_speed
-
-    now = time.time()
-    raw_speed = 0.0
-
-    if _prev_lat is not None:
-        dist_m = haversine_meters(_prev_lat, _prev_lon, lat, lon)
-        elapsed = now - _prev_time
-
-        if elapsed > 0:
-            raw_speed = min(60.0, max(0.0, (dist_m / elapsed) * 3.6))
-
-    _prev_lat, _prev_lon, _prev_time = lat, lon, now
-    _smoothed_speed = 0.6 * _smoothed_speed + 0.4 * raw_speed
-    speed = _smoothed_speed
-
-    return round(speed, 2)
-
-
-# Advances (or, on the return leg, retreats) only when the bus comes within
-# ARRIVAL_THRESHOLD of the next stop in its current direction of travel.
-# This ensures ETA always decreases as the bus approaches and never jumps
-# back up — in EITHER direction, not just on the outbound leg.
-ARRIVAL_THRESHOLD = 5  # meters — bus is considered at a stop within this distance
-_current_stop_idx = 0  # last stop passed; backend adds `travel_direction` for "next stop"
-
-
-def update_stop_index(lat, lon, direction):
-    """Advance/retreat _current_stop_idx if the bus has arrived at the next
-    stop in `direction` (+1 outbound, -1 on the return leg)."""
-    global _current_stop_idx
-
-    next_idx = (_current_stop_idx + direction) % len(BUS_STOPS)
-    next_stop = BUS_STOPS[next_idx]
-
-    dist = haversine_meters(lat, lon, next_stop[0], next_stop[1])
-
-    if dist <= ARRIVAL_THRESHOLD:
-        _current_stop_idx = next_idx
-
-    return _current_stop_idx
-
+# ── helpers (stateless — shared by every bus on this line) ─────────────────
 
 def get_leg_state(index):
     """Returns ((lat, lon), direction, leg_progress) for `index`.
@@ -364,27 +310,88 @@ def get_occupancy(hour):
         return random.randint(10, 40)
 
 
-def build_payload(index):
-    (lat, lon), direction, leg_progress = get_leg_state(index)
+# Advances (or, on the return leg, retreats) only when the bus comes within
+# ARRIVAL_THRESHOLD of the next stop in its current direction of travel.
+# This ensures ETA always decreases as the bus approaches and never jumps
+# back up — in EITHER direction, not just on the outbound leg.
+ARRIVAL_THRESHOLD = 5  # meters — bus is considered at a stop within this distance
 
-    now = datetime.now()
 
-    return {
-        "bus_id": BUS_ID,
-        "route": ROUTE_NAME,
-        "route_id": ROUTE_ID,
-        "lat": lat,
-        "lon": lon,
-        "timestamp": now.isoformat(),
-        "occupancy": get_occupancy(now.hour),
-        "hour": now.hour,
-        "day_of_week": now.weekday(),
-        "is_rush_hour": is_rush_hour(now.hour),
-        "route_progress": round(leg_progress, 2),
-        "stop_index": update_stop_index(lat, lon, direction),
-        "travel_direction": direction,
-        "speed_kmh": compute_speed_kmh(lat, lon),
-    }
+class BusState:
+    """Everything that used to be a handful of module-level globals
+    (_current_stop_idx, the speed-tracker's _prev_lat/_prev_lon/_prev_time,
+    the tick counter), now per-bus so two buses on the same line each track
+    their own position/speed/stop independently instead of clobbering a
+    single shared state.
+    """
+
+    def __init__(self, bus_id, started):
+        self.bus_id = bus_id
+        self.index = 0             # tick counter -> position along ROUTE_COORDINATES
+        self.started = started     # False for a staggered-start bus until unlocked
+        self._current_stop_idx = 0
+        self._prev_lat = None
+        self._prev_lon = None
+        self._prev_time = None
+        self._smoothed_speed = 0.0
+
+    def compute_speed_kmh(self, lat, lon):
+        """Smoothed speed in km/h from this bus's last known position.
+
+        The route's GPS points (from OSM) aren't evenly spaced — curves have
+        many points close together, straight stretches have few far apart —
+        so the raw distance/time between two consecutive points swings
+        wildly from tick to tick. Exponentially smoothing against the
+        previous reading damps those artifacts into something a real bus's
+        speed could plausibly do.
+        """
+        now = time.time()
+        raw_speed = 0.0
+
+        if self._prev_lat is not None:
+            dist_m = haversine_meters(self._prev_lat, self._prev_lon, lat, lon)
+            elapsed = now - self._prev_time
+            if elapsed > 0:
+                raw_speed = min(60.0, max(0.0, (dist_m / elapsed) * 3.6))
+
+        self._prev_lat, self._prev_lon, self._prev_time = lat, lon, now
+        self._smoothed_speed = 0.6 * self._smoothed_speed + 0.4 * raw_speed
+        return round(self._smoothed_speed, 2)
+
+    def update_stop_index(self, lat, lon, direction):
+        """Advance/retreat this bus's _current_stop_idx if it has arrived at
+        the next stop in `direction` (+1 outbound, -1 on the return leg)."""
+        next_idx = (self._current_stop_idx + direction) % len(BUS_STOPS)
+        next_stop = BUS_STOPS[next_idx]
+
+        dist = haversine_meters(lat, lon, next_stop[0], next_stop[1])
+        if dist <= ARRIVAL_THRESHOLD:
+            self._current_stop_idx = next_idx
+
+        return self._current_stop_idx
+
+    def build_payload(self):
+        (lat, lon), direction, leg_progress = get_leg_state(self.index)
+        now = datetime.now()
+
+        payload = {
+            "bus_id": self.bus_id,
+            "route": ROUTE_NAME,
+            "route_id": ROUTE_ID,
+            "lat": lat,
+            "lon": lon,
+            "timestamp": now.isoformat(),
+            "occupancy": get_occupancy(now.hour),
+            "hour": now.hour,
+            "day_of_week": now.weekday(),
+            "is_rush_hour": is_rush_hour(now.hour),
+            "route_progress": round(leg_progress, 2),
+            "stop_index": self.update_stop_index(lat, lon, direction),
+            "travel_direction": direction,
+            "speed_kmh": self.compute_speed_kmh(lat, lon),
+        }
+        self.index += 1
+        return payload
 
 
 # ── send data to backend ───────────────────────────────────────────────────
@@ -401,7 +408,7 @@ def send_data(payload):
             f"({data.get('occupancy_pct') or 0:.0f}%) | "
             f"ETA: {data.get('eta_minutes') or 0:.1f} min"
         )
-        
+
     except requests.exceptions.ConnectionError:
         print("[NO BACKEND] Is uvicorn backend.main:app running?")
 
@@ -412,13 +419,22 @@ def send_data(payload):
 # ── main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"Simulating {ROUTE_NAME} ({BUS_ID}) — sending every {INTERVAL}s to {BACKEND_URL}")
+    print(f"Simulating {ROUTE_NAME} ({', '.join(BUS_IDS)}) — sending every {INTERVAL}s to {BACKEND_URL}")
     print("Dashboard: http://localhost:8000\n")
 
-    i = 0
+    # buses[0] is the primary — it starts right away. Every other bus on
+    # this line waits (started=False) until the primary has passed Parada 1.
+    primary, *extras = BUS_IDS
+    buses = [BusState(primary, started=True)] + [BusState(bus_id, started=False) for bus_id in extras]
 
     while True:
-        payload = build_payload(i)
-        send_data(payload)
-        i += 1
+        for bus in buses[1:]:
+            if not bus.started and buses[0]._current_stop_idx >= 1:
+                bus.started = True
+                print(f"→ {bus.bus_id} arrancando — {buses[0].bus_id} ya pasó la Parada 1")
+
+        for bus in buses:
+            if bus.started:
+                send_data(bus.build_payload())
+
         time.sleep(INTERVAL)

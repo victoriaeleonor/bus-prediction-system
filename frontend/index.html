@@ -187,6 +187,18 @@
     text-transform: uppercase;
     font-weight: 700;
   }
+  #bus-select {
+    display: block;
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: var(--sans);
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
   .occ-track {
     background: var(--bg);
     border-radius: 4px;
@@ -423,6 +435,7 @@
       <span class="occ-title" data-i18n="occupancy">OCCUPANCY</span>
       <span class="occ-badge" id="s-occ-badge">—</span>
     </div>
+    <select id="bus-select" title="Elegir bus / Choose bus"></select>
     <div class="occ-track"><div class="occ-fill" id="s-occ-fill" style="width:0%"></div></div>
     <div class="occ-pct" id="s-occ-pct">0%</div>
   </div>
@@ -928,12 +941,17 @@ function loadRoute(lineId, attempt = 1) {
 
 // ── line picker ──────────────────────────────────────────────────────────
 let selectedLine = '38';
-let busStateByLine = {}; // last known PredictionResponse per route_id, so
-                          // switching lines shows data instantly if we already have it
+let busStateByLine = {}; // last known PredictionResponse from each line's PRIMARY
+                          // bus, so switching lines shows data instantly if we
+                          // already have it
+let busStateByBus = {};  // last known PredictionResponse per bus_id, ANY bus —
+                          // powers the "which bus's occupancy" selector
+let selectedOccupancyBus = LINE_BUS_ID[selectedLine]; // which bus's data drives the OCUPACIÓN block
 
 function switchLine(lineId) {
   selectedLine = lineId;
   loadRoute(lineId);
+  resetBusSelector(lineId);
 
   const cached = busStateByLine[lineId];
   if (cached) {
@@ -950,7 +968,25 @@ function switchLine(lineId) {
 function resetSidebar() {
   document.getElementById('s-eta').textContent       = '—';
   document.getElementById('s-next-stop').textContent = '—';
+}
 
+// ── OCUPACIÓN block: driven by whichever bus is picked in #bus-select,
+// independently of the ETA/next-stop fields above (those always follow
+// the line's primary bus — see updateSidebar()). ─────────────────────────
+function updateOccupancyBlock(d) {
+  const pct   = d.occupancy_pct ?? 0;
+  const cls   = d.occupancy_class ?? 'low';
+  const color = OCC_COLORS[cls] || '#22c55e';
+  const fill  = document.getElementById('s-occ-fill');
+  fill.style.width      = pct + '%';
+  fill.style.background = color;
+  document.getElementById('s-occ-pct').textContent = pct.toFixed(0) + '%';
+  const badge = document.getElementById('s-occ-badge');
+  badge.textContent      = cls.replace('_', ' ').toUpperCase();
+  badge.style.background = color;
+}
+
+function resetOccupancyBlock() {
   document.getElementById('s-occ-fill').style.width      = '0%';
   document.getElementById('s-occ-fill').style.background = '';
   document.getElementById('s-occ-pct').textContent       = '0%';
@@ -958,6 +994,43 @@ function resetSidebar() {
   badge.textContent      = '—';
   badge.style.background = '';
 }
+
+function addBusOption(busId) {
+  const sel = document.getElementById('bus-select');
+  if ([...sel.options].some(o => o.value === busId)) return;
+  const opt = document.createElement('option');
+  opt.value = busId;
+  opt.textContent = 'Bus ' + busId.replace('bus_', '');
+  sel.appendChild(opt);
+}
+
+// Called on every line switch: only the line's primary bus is guaranteed
+// to exist, so it's always option #1 — any other bus for this line
+// (staggered-start, may not have sent anything yet) is added as its own
+// telemetry arrives (see ws.onmessage).
+function resetBusSelector(lineId) {
+  const sel = document.getElementById('bus-select');
+  sel.innerHTML = '';
+  const primaryId = LINE_BUS_ID[lineId];
+  addBusOption(primaryId);
+  Object.values(busStateByBus).forEach(b => {
+    if (b.route_id === lineId && b.bus_id !== primaryId) addBusOption(b.bus_id);
+  });
+
+  selectedOccupancyBus = primaryId;
+  sel.value = primaryId;
+
+  const cached = busStateByBus[primaryId];
+  if (cached) updateOccupancyBlock(cached);
+  else resetOccupancyBlock();
+}
+
+document.getElementById('bus-select').addEventListener('change', (e) => {
+  selectedOccupancyBus = e.target.value;
+  const cached = busStateByBus[selectedOccupancyBus];
+  if (cached) updateOccupancyBlock(cached);
+  else resetOccupancyBlock();
+});
 
 function populateLineSelect() {
   fetch(window.location.origin + '/route/lines')
@@ -1107,21 +1180,11 @@ function updateActiveStopMarker(lat, lon) {
 // ── sidebar update ───────────────────────────────────────────────────────
 function updateSidebar(d) {
   setNoDataVisible(false);
-
-  document.getElementById('s-eta').textContent     = formatDuration(d.eta_minutes);
+  document.getElementById('s-eta').textContent       = formatDuration(d.eta_minutes);
   document.getElementById('s-next-stop').textContent = d.next_stop || '—';
-
-  // occupancy
-  const pct   = d.occupancy_pct ?? 0;
-  const cls   = d.occupancy_class ?? 'low';
-  const color = OCC_COLORS[cls] || '#22c55e';
-  const fill  = document.getElementById('s-occ-fill');
-  fill.style.width      = pct + '%';
-  fill.style.background = color;
-  document.getElementById('s-occ-pct').textContent   = pct.toFixed(0) + '%';
-  const badge = document.getElementById('s-occ-badge');
-  badge.textContent    = cls.replace('_', ' ').toUpperCase();
-  badge.style.background = color;
+  // OCUPACIÓN is intentionally not touched here — see updateOccupancyBlock(),
+  // which follows whichever bus is picked in #bus-select instead of always
+  // the line's primary bus.
 }
 
 // ── WebSocket connection ─────────────────────────────────────────────────
@@ -1138,12 +1201,25 @@ function connectWS() {
   ws.onmessage = (evt) => {
     try {
       const d = JSON.parse(evt.data);
-      busStateByLine[d.route_id] = d;
-      // Both lines' simulators broadcast on the same socket — only touch
-      // the map/sidebar when the message matches the line currently shown.
+      busStateByBus[d.bus_id] = d;
+
+      // Every line can have more than one bus now — the OCUPACIÓN block
+      // follows whichever one is picked in #bus-select, independent of
+      // which bus is this line's "main" one on the map/ETA/next-stop.
       if (d.route_id === selectedLine) {
-        setBusPosition(d.lat, d.lon, d.occupancy_class);
-        updateSidebar(d);
+        addBusOption(d.bus_id); // no-op if already listed
+        if (d.bus_id === selectedOccupancyBus) updateOccupancyBlock(d);
+      }
+
+      // Map marker, ETA and next-stop always follow the line's primary bus
+      // only — letting a second bus drive them too would make them
+      // flicker between two buses' positions.
+      if (d.bus_id === LINE_BUS_ID[d.route_id]) {
+        busStateByLine[d.route_id] = d;
+        if (d.route_id === selectedLine) {
+          setBusPosition(d.lat, d.lon, d.occupancy_class);
+          updateSidebar(d);
+        }
       }
     } catch (e) { console.warn('parse error', e); }
   };
