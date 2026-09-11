@@ -51,6 +51,7 @@ in the current API contract.
 
 import json
 import logging
+import math
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -95,6 +96,36 @@ class LineInfo(BaseModel):
 
 # ── static, locally-known lines (loaded only once at import) ─────────────
 
+def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def _trim_to_stops(route: list[tuple[float, float]], bus_stops: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Cuts the polyline down to the stretch between the first and last real
+    bus stop — the raw OSM relation typically continues past the last named
+    stop to an actual depot/turnaround point (247 of Línea 38's 548 points,
+    over 20 minutes of simulated travel, lie beyond its last stop). Keeps
+    the drawn route consistent with what raspberry-pi/simulator.py's own
+    matching _trim_to_stops() actually makes the bus traverse.
+    """
+    if not route or not bus_stops:
+        return route
+    first_stop, last_stop = bus_stops[0], bus_stops[-1]
+
+    def nearest_idx(stop):
+        return min(range(len(route)), key=lambda i: _haversine_meters(stop[0], stop[1], route[i][0], route[i][1]))
+
+    i_first, i_last = nearest_idx(first_stop), nearest_idx(last_stop)
+    if i_first > i_last:
+        i_first, i_last = i_last, i_first
+    return route[i_first:i_last + 1]
+
+
 def _load_static_route(line: LineConfig) -> RouteResponse:
     """
     Loads a line's raspberry-pi/route_*.json and reconstructs the polyline
@@ -135,10 +166,11 @@ def _load_static_route(line: LineConfig) -> RouteResponse:
         route.extend(coords)
         prev_last = route[-1]
 
-    logger.info("%s loaded from %s: %d points", line.label, line.route_file.name, len(route[::2]))
+    decimated = _trim_to_stops(route[::2], line.bus_stops)
+    logger.info("%s loaded from %s: %d points", line.label, line.route_file.name, len(decimated))
 
     return RouteResponse(
-        coordinates=[list(p) for p in route[::2]],
+        coordinates=[list(p) for p in decimated],
         stops=[list(p) for p in line.bus_stops],
         relation_id=None,
         from_cache=None,

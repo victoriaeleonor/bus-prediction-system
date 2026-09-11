@@ -110,6 +110,21 @@ BACKEND_URL = args.backend_url
 
 # ── route loading ──────────────────────────────────────────────────────────
 
+def haversine_meters(lat1, lon1, lat2, lon2):
+    R = 6_371_000
+    import math
+
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+
+    a = (
+        math.sin((phi2 - phi1) / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2)
+        * math.sin(math.radians((lon2 - lon1) / 2)) ** 2
+    )
+
+    return R * 2 * math.asin(math.sqrt(a))
+
+
 def fetch_route_from_file():
     route_file = Path(__file__).parent / CFG["route_file"]
     with open(route_file) as f:
@@ -160,9 +175,33 @@ def fetch_route_from_file():
 
     # Use every second point only
     route = route[::2]
+    route = _trim_to_stops(route)
 
     print(f"✓ {len(route)} points loaded in correct order from {CFG['route_file']}")
     return route
+
+
+def _trim_to_stops(route):
+    """Cuts the polyline down to the stretch between the first and last real
+    bus stop.
+
+    The raw OSM relation for a line typically continues past the last named
+    stop to an actual depot/turnaround point (for Línea 38, ~247 of 548
+    points — over 20 minutes at this simulator's pace — lie beyond the last
+    stop). Without this, the bus overshoots past the last stop, then
+    retraces the same dead stretch on the way back, all while
+    _current_stop_idx has nothing left to advance to and stays frozen the
+    entire time — which looks exactly like the app "not updating".
+    """
+    first_stop, last_stop = BUS_STOPS[0], BUS_STOPS[-1]
+
+    def nearest_idx(stop):
+        return min(range(len(route)), key=lambda i: haversine_meters(stop[0], stop[1], route[i][0], route[i][1]))
+
+    i_first, i_last = nearest_idx(first_stop), nearest_idx(last_stop)
+    if i_first > i_last:
+        i_first, i_last = i_last, i_first
+    return route[i_first:i_last + 1]
 
 
 def fetch_route_from_osm(relation_id=None):
@@ -230,21 +269,6 @@ ROUTE_COORDINATES = load_route()
 print(f"Route ready: {len(ROUTE_COORDINATES)} GPS points\n")
 
 # ── helpers ────────────────────────────────────────────────────────────────
-
-def haversine_meters(lat1, lon1, lat2, lon2):
-    R = 6_371_000
-    import math
-
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-
-    a = (
-        math.sin((phi2 - phi1) / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2)
-        * math.sin(math.radians((lon2 - lon1) / 2)) ** 2
-    )
-
-    return R * 2 * math.asin(math.sqrt(a))
-
 
 # ── speed tracker (stateful) ───────────────────────────────────────────────
 _prev_lat: float = None
