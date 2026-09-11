@@ -877,8 +877,15 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     const d = await res.json();
 
     document.getElementById('my-stop-eta').textContent = formatDuration(d.eta_to_origin_min);
+    // Build the arrival clock time from THIS device's own "now" plus the
+    // (timezone-agnostic) minutes the backend returned, instead of parsing
+    // d.total_arrival_time — that's an absolute timestamp computed from the
+    // server's clock (UTC on Render) with no timezone suffix, so browsers
+    // read it as their OWN local time and show a value hours off from
+    // reality (e.g. "02:48 a.m." when it's actually ~10pm locally).
+    const arrivalMs = Date.now() + (d.eta_to_origin_min + d.trip_duration_min) * 60000;
     document.getElementById('my-stop-arrival').textContent =
-      new Date(d.total_arrival_time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      new Date(arrivalMs).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
     resultBox.style.display = 'block';
 
     if (ROUTE_STOPS[stopId]) map.setView(ROUTE_STOPS[stopId], 16, { animate: false });
