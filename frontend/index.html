@@ -98,6 +98,8 @@
 
   /* ── sidebar ── */
   aside {
+    grid-column: 1;
+    grid-row: 2;
     background: var(--surface);
     border-right: 1px solid var(--border);
     overflow-y: auto;
@@ -107,6 +109,14 @@
     flex-direction: column;
     gap: 0;
   }
+
+  /* Explicit placement (not left to auto-placement) so the map pane always
+     lands in the 1fr column — the responsive block below turns `aside`
+     into `position:fixed` on phones, which takes it out of grid flow, and
+     without an explicit grid-column the map pane would auto-place into
+     aside's now-empty (0px) column instead of its own, collapsing to zero
+     width. */
+  #map-pane { grid-column: 2; grid-row: 2; }
   aside::-webkit-scrollbar { width: 4px; }
   aside::-webkit-scrollbar-track { background: transparent; }
   aside::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -583,7 +593,7 @@
 </aside>
 
 <!-- map -->
-<div style="position:relative; overflow:hidden;">
+<div id="map-pane" style="position:relative; overflow:hidden;">
   <div id="map"></div>
   <div id="no-data">
     <div class="big">🚌</div>
@@ -745,11 +755,8 @@ const STOP_ACTIVE_COLOR = '#f59e0b'; // gold/amber — the bus's next stop
 // the trip planner clears the other's ring entirely, so a stop never ends
 // up wearing rings from both at once and confusing which selector it belongs to.
 const SELECT_RING_COLORS = {
-  myStop:      '#ec4899', // pink  — "¿Cuándo llega mi bus?"
-  tripPlanner: '#475569', // slate — trip planner (origin AND destination) —
-                          // deliberately muted/neutral, unlike every other
-                          // color already used on the site (accent orange,
-                          // occupancy greens/reds, bus/stop identity colors)
+  myStop:      '#ec4899', // pink — "¿Cuándo llega mi bus?"
+  tripPlanner: '#ef4444', // red  — trip planner (origin AND destination)
 };
 
 let activeSelectionGroup = null; // 'myStop' | 'tripPlanner' | null — which selector's ring is currently shown
