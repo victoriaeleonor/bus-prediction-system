@@ -499,6 +499,23 @@
     width: 100%;
   }
   #trip-calc-btn:hover, #my-stop-btn:hover { opacity: .85; }
+  .icon-btn {
+    flex-shrink: 0;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0 12px;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  /* "pick a spot on the map" mode is on — cursor also switches to
+     crosshair (set in JS) so the map itself signals what to do next. */
+  .icon-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    filter: brightness(1.1);
+  }
   #trip-result, #my-stop-result {
     margin-top: 10px;
     background: var(--bg);
@@ -621,7 +638,8 @@
     <div class="trip-row">
       <div style="display:flex; gap:8px; min-width:0;">
         <select id="my-stop-select" style="flex:1; min-width:0;"></select>
-        <button id="use-location-btn" title="" style="flex-shrink:0; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0 12px; cursor:pointer; font-size:15px;">📍</button>
+        <button id="use-location-btn" class="icon-btn" title="">📍</button>
+        <button id="pick-location-btn" class="icon-btn" title="">📌</button>
       </div>
       <button id="my-stop-btn" data-i18n="checkEta">Check arrival</button>
     </div>
@@ -703,6 +721,8 @@ const I18N = {
     myStopSection: '¿Cuándo llega mi bus?', checkEta: 'Ver llegada',
     myStopErrorGeneric: 'No se pudo calcular la llegada.',
     useLocationTitle: 'Usar mi ubicación para elegir la parada más cercana',
+    pickLocationTitle: 'Elegir en el mapa desde dónde quiero subirme',
+    tapMapHint: 'Tocá el mapa en el punto exacto desde donde querés subirte.',
     locationUnsupported: 'Tu navegador no soporta geolocalización.',
     locationDenied: 'Ubicación denegada para este sitio. En iPhone: tocá "AA" en la barra de direcciones → Configuración del sitio web → Ubicación → Permitir.',
     locationError: 'No se pudo obtener tu ubicación.',
@@ -710,7 +730,7 @@ const I18N = {
     tripErrorGeneric: 'No se pudo calcular el viaje.',
     busAlreadyPassed: '🚌 El bus ya pasó por esta parada.',
     occLow: 'BAJA', occMedium: 'MEDIA', occHigh: 'ALTA', occVeryHigh: 'MUY ALTA',
-    youAreHere: 'Estás aquí', nearestStopLabel: 'Esta es tu parada más cercana',
+    youAreHere: 'Estás aquí', pickedLocation: 'Ubicación elegida', nearestStopLabel: 'Esta es tu parada más cercana',
   },
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
@@ -723,6 +743,8 @@ const I18N = {
     myStopSection: 'When does my bus arrive?', checkEta: 'Check arrival',
     myStopErrorGeneric: 'Could not calculate the arrival.',
     useLocationTitle: 'Use my location to pick the nearest stop',
+    pickLocationTitle: 'Pick on the map where you want to board',
+    tapMapHint: 'Tap the map at the exact spot you want to board from.',
     locationUnsupported: 'Your browser does not support geolocation.',
     locationDenied: 'Location denied for this site. On iPhone: tap "AA" in the address bar → Website Settings → Location → Allow.',
     locationError: 'Could not get your location.',
@@ -730,7 +752,7 @@ const I18N = {
     tripErrorGeneric: 'Could not calculate the trip.',
     busAlreadyPassed: '🚌 The bus already went past this stop.',
     occLow: 'LOW', occMedium: 'MEDIUM', occHigh: 'HIGH', occVeryHigh: 'VERY HIGH',
-    youAreHere: 'You are here', nearestStopLabel: 'This is your nearest stop',
+    youAreHere: 'You are here', pickedLocation: 'Selected location', nearestStopLabel: 'This is your nearest stop',
   },
 };
 let currentLang = 'es';
@@ -758,17 +780,21 @@ function applyI18n() {
   });
   document.getElementById('lang-toggle').textContent = currentLang === 'es' ? 'EN' : 'ES';
   document.getElementById('use-location-btn').title = dict.useLocationTitle;
+  document.getElementById('pick-location-btn').title = dict.pickLocationTitle;
   populateStopSelects(); // refresh "Parada N" / "Stop N" option labels
   // Re-run the occupancy pipeline for the selected bus so its map popup
   // (badge label) picks up the new language too, in case it's open.
   if (selectedBus) refreshOccupancyForBus(selectedBus);
   // Refreshes the "Esta es tu parada más cercana" stop label and the
-  // "Estás aquí" user-location label, in case either is currently showing.
+  // "Estás aquí"/"Ubicación elegida" user-location label, in case either
+  // is currently showing.
   refreshAllStopIcons();
   if (myLocationMarker) {
     myLocationMarker.setIcon(makeMyLocationIcon());
-    myLocationMarker.setPopupContent(`<b style="font-family:monospace">📍 ${dict.youAreHere}</b>`);
+    myLocationMarker.setPopupContent(`<b style="font-family:monospace">📍 ${dict[myLocationLabelKey]}</b>`);
   }
+  // Re-render the "tap the map" hint if picking mode is currently active.
+  if (pickingLocation) setDynamicMessage(document.getElementById('my-stop-error'), 'tapMapHint');
 }
 
 document.getElementById('lang-toggle').addEventListener('click', () => {
@@ -1044,6 +1070,36 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   });
 });
 
+// Shared by the GPS "use my location" button and the "pick on the map"
+// mode below — given any lat/lon, finds the nearest stop on the current
+// line and reflects it the same way (selector, ring, map marker) no
+// matter which one produced the point.
+function selectNearestStopFromPoint(lat, lon, { recenter = false, labelKey = 'youAreHere' } = {}) {
+  if (!ROUTE_STOPS.length) return;
+  let bestIdx = 0, bestDist = Infinity;
+  ROUTE_STOPS.forEach(([slat, slon], i) => {
+    const d = haversineMeters(lat, lon, slat, slon);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  });
+  document.getElementById('my-stop-select').value = bestIdx;
+  activeSelectionGroup = 'myStop';
+  refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
+  setMyLocationMarker(lat, lon, labelKey);
+
+  if (recenter) {
+    map.fitBounds([[lat, lon], ROUTE_STOPS[bestIdx]], { padding: [60, 60], animate: false });
+    // Otherwise the next live bus update — if it's still the first one this
+    // page load has seen — immediately re-centers the map on the bus via
+    // setBusPosition()'s own firstMove logic, snapping the view away right
+    // after fitBounds set it deliberately.
+    firstMove = false;
+  }
+  const errorBox = document.getElementById('my-stop-error');
+  errorBox.style.color   = 'var(--accent)';
+  setDynamicMessage(errorBox, 'locationSet');
+  errorBox.style.display = 'block';
+}
+
 document.getElementById('use-location-btn').addEventListener('click', () => {
   const errorBox = document.getElementById('my-stop-error');
   errorBox.style.display = 'none';
@@ -1056,27 +1112,7 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
   if (!ROUTE_STOPS.length) return;
 
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const { latitude, longitude } = pos.coords;
-      let bestIdx = 0, bestDist = Infinity;
-      ROUTE_STOPS.forEach(([slat, slon], i) => {
-        const d = haversineMeters(latitude, longitude, slat, slon);
-        if (d < bestDist) { bestDist = d; bestIdx = i; }
-      });
-      document.getElementById('my-stop-select').value = bestIdx;
-      activeSelectionGroup = 'myStop';
-      refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
-      setMyLocationMarker(latitude, longitude);
-      map.fitBounds([[latitude, longitude], ROUTE_STOPS[bestIdx]], { padding: [60, 60], animate: false });
-      // Otherwise the next live bus update — if it's still the first one
-      // this page load has seen — immediately re-centers the map on the
-      // bus via setBusPosition()'s own firstMove logic, snapping the view
-      // away right after fitBounds set it deliberately.
-      firstMove = false;
-      errorBox.style.color   = 'var(--accent)';
-      setDynamicMessage(errorBox, 'locationSet');
-      errorBox.style.display = 'block';
-    },
+    (pos) => selectNearestStopFromPoint(pos.coords.latitude, pos.coords.longitude, { recenter: true, labelKey: 'youAreHere' }),
     (err) => {
       console.warn('Geolocation error:', err);
       errorBox.style.color   = 'var(--very_high)';
@@ -1085,6 +1121,39 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
     },
     { enableHighAccuracy: true, timeout: 8000 }
   );
+});
+
+// ── pick the exact boarding point on the map instead of using GPS ──────────
+// Toggled by pick-location-btn: while active, the map's cursor turns into a
+// crosshair and the NEXT click on empty map space (not on a marker, which
+// has its own click handling) drops the point and turns picking back off.
+let pickingLocation = false;
+
+function setPickingLocation(active) {
+  pickingLocation = active;
+  document.getElementById('pick-location-btn').classList.toggle('active', active);
+  map.getContainer().style.cursor = active ? 'crosshair' : '';
+  if (active) {
+    const errorBox = document.getElementById('my-stop-error');
+    errorBox.style.color   = 'var(--accent)';
+    setDynamicMessage(errorBox, 'tapMapHint');
+    errorBox.style.display = 'block';
+  }
+}
+
+document.getElementById('pick-location-btn').addEventListener('click', () => {
+  if (pickingLocation) {
+    setPickingLocation(false);
+    document.getElementById('my-stop-error').style.display = 'none'; // cancelled — clear the hint
+  } else {
+    setPickingLocation(true);
+  }
+});
+
+map.on('click', (e) => {
+  if (!pickingLocation) return;
+  setPickingLocation(false);
+  selectNearestStopFromPoint(e.latlng.lat, e.latlng.lng, { recenter: false, labelKey: 'pickedLocation' });
 });
 
 // ── quick "when does my bus arrive?" check (single stop) ───────────────────
@@ -1452,6 +1521,11 @@ function makeBusIcon(occColor, busId, isSelected) {
 // (myLocationLabelShown drives whether makeMyLocationIcon() renders it).
 const MY_LOCATION_LABEL_MS = 4000;
 let myLocationLabelShown = false;
+// Which i18n key the label shows — "Estás aquí" for a real GPS fix,
+// "Ubicación elegida" when the point instead came from clicking the map
+// (see pick-location-btn below), since that one isn't necessarily where
+// the user is physically standing right now.
+let myLocationLabelKey = 'youAreHere';
 let myLocationLabelTimer = null;
 
 function makeMyLocationIcon() {
@@ -1460,7 +1534,7 @@ function makeMyLocationIcon() {
     html: `
       <div class="my-location-wrap" style="width:16px;height:16px;">
         <div class="my-location-dot"></div>
-        ${myLocationLabelShown ? `<div class="map-label map-label-here">${I18N[currentLang].youAreHere}</div>` : ''}
+        ${myLocationLabelShown ? `<div class="map-label map-label-here">${I18N[currentLang][myLocationLabelKey]}</div>` : ''}
       </div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10],
@@ -1469,15 +1543,17 @@ function makeMyLocationIcon() {
 
 let myLocationMarker = null;
 
-function setMyLocationMarker(lat, lon) {
+function setMyLocationMarker(lat, lon, labelKey = 'youAreHere') {
   myLocationLabelShown = true;
+  myLocationLabelKey   = labelKey;
   if (!myLocationMarker) {
     myLocationMarker = L.marker([lat, lon], { icon: makeMyLocationIcon(), zIndexOffset: 500 })
       .addTo(map)
-      .bindPopup(`<b style="font-family:monospace">📍 ${I18N[currentLang].youAreHere}</b>`);
+      .bindPopup(`<b style="font-family:monospace">📍 ${I18N[currentLang][labelKey]}</b>`);
   } else {
     myLocationMarker.setLatLng([lat, lon]);
     myLocationMarker.setIcon(makeMyLocationIcon());
+    myLocationMarker.setPopupContent(`<b style="font-family:monospace">📍 ${I18N[currentLang][labelKey]}</b>`);
   }
   clearTimeout(myLocationLabelTimer);
   myLocationLabelTimer = setTimeout(() => {
