@@ -1027,6 +1027,43 @@ function resetOccupancyBlock() {
   badge.style.background = '';
 }
 
+// The occupancy model's hour/day/is_rush_hour normally come from whichever
+// machine happens to be running the simulator — unrelated to whoever is
+// looking at the dashboard. Send THIS device's clock instead so OCUPACIÓN
+// reflects "now" for the viewer, not for wherever simulator.py runs.
+function viewerTimeFeatures() {
+  const now = new Date();
+  const hour = now.getHours();
+  const dayOfWeek = (now.getDay() + 6) % 7; // JS: Sun=0..Sat=6 -> Mon=0..Sun=6 (matches the backend/simulator convention)
+  const isRushHour = (hour >= 7 && hour <= 9) || (hour >= 18 && hour <= 20) ? 1 : 0;
+  return { hour, day_of_week: dayOfWeek, is_rush_hour: isRushHour };
+}
+
+// Re-runs the occupancy prediction for `busId` using this device's clock
+// instead of the raw WS payload's (simulator-clock) values, and renders
+// whatever comes back. Falls back to the raw telemetry's own occupancy if
+// the request fails (offline, bus has no telemetry yet, etc.) so the block
+// still shows something rather than going blank.
+async function refreshOccupancyForBus(busId) {
+  const fallback = () => {
+    const cached = busStateByBus[busId];
+    if (cached) updateOccupancyBlock(cached);
+    else resetOccupancyBlock();
+  };
+  try {
+    const res = await fetch(window.location.origin + '/predict/occupancy/for-viewer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bus_id: busId, ...viewerTimeFeatures() }),
+    });
+    if (busId !== selectedOccupancyBus) return; // selection changed while this was in flight
+    if (!res.ok) { fallback(); return; }
+    updateOccupancyBlock(await res.json());
+  } catch (e) {
+    if (busId === selectedOccupancyBus) fallback();
+  }
+}
+
 function addBusOption(busId) {
   const sel = document.getElementById('bus-select');
   if ([...sel.options].some(o => o.value === busId)) return;
@@ -1051,17 +1088,12 @@ function resetBusSelector(lineId) {
 
   selectedOccupancyBus = primaryId;
   sel.value = primaryId;
-
-  const cached = busStateByBus[primaryId];
-  if (cached) updateOccupancyBlock(cached);
-  else resetOccupancyBlock();
+  refreshOccupancyForBus(primaryId);
 }
 
 document.getElementById('bus-select').addEventListener('change', (e) => {
   selectedOccupancyBus = e.target.value;
-  const cached = busStateByBus[selectedOccupancyBus];
-  if (cached) updateOccupancyBlock(cached);
-  else resetOccupancyBlock();
+  refreshOccupancyForBus(selectedOccupancyBus);
   refreshBusMarkerEmphasis();
 });
 
@@ -1283,7 +1315,7 @@ function connectWS() {
       if (d.route_id === selectedLine) {
         addBusOption(d.bus_id); // no-op if already listed
         setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class);
-        if (d.bus_id === selectedOccupancyBus) updateOccupancyBlock(d);
+        if (d.bus_id === selectedOccupancyBus) refreshOccupancyForBus(d.bus_id);
       }
 
       // ETA and next-stop always follow the line's primary bus only —

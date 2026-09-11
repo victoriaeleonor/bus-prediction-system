@@ -116,6 +116,19 @@ class PredictionResponse(BaseModel):
     is_rush_hour: int
 
 
+class OccupancyForViewerRequest(BaseModel):
+    bus_id: str
+    hour: int          # the VIEWER's local hour (0-23), not the simulator's
+    day_of_week: int   # the VIEWER's local day (0=Monday .. 6=Sunday)
+    is_rush_hour: int
+
+
+class OccupancyForViewerResponse(BaseModel):
+    bus_id: str
+    occupancy_class: str
+    occupancy_pct: float
+
+
 class TripRequest(BaseModel):
     origin_stop_id: int       # index into the line's bus_stops, 0-based
     destination_stop_id: int  # index into the line's bus_stops, 0-based, must be >= origin_stop_id
@@ -186,7 +199,7 @@ def _safe_label_encode(label_encoders: dict, key: str, value: str, default: int 
 
 # ── prediction logic ───────────────────────────────────────────────────
 
-def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
+def _predict_occupancy(payload: BusPayload, models: dict, record_history: bool = True) -> tuple[str, float]:
     """
     Runs the occupancy XGBoost model (trained with SUNT OD).
     Returns (occupancy_class, occupancy_pct).
@@ -197,6 +210,12 @@ def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
     direction_id and stop_id have no live signal in BusPayload and are held
     at fixed defaults; pt_sequence is approximated with payload.stop_index.
     See the module docstring for details.
+
+    record_history=False skips appending to loading_lag's history deque —
+    used by /predict/occupancy/for-viewer, which re-runs this prediction
+    with a different `hour`/`day_of_week`/`is_rush_hour` purely for display
+    and must not advance the real simulator-driven lag tracking every time
+    a viewer's browser clock ticks over.
     """
     xgb_model          = models.get("xgb_model")
     xgb_encoder        = models.get("xgb_encoder")
@@ -271,7 +290,8 @@ def _predict_occupancy(payload: BusPayload, models: dict) -> tuple[str, float]:
     cold_start_default = row["loading_mean_route"]
     row["loading_lag_1"] = hist[-1] if len(hist) >= 1 else cold_start_default
     row["loading_lag_2"] = hist[-2] if len(hist) >= 2 else cold_start_default
-    hist.append(payload.occupancy)
+    if record_history:
+        hist.append(payload.occupancy)
 
     # No live signal available for these — fixed, documented defaults.
     row["direction_id"] = _safe_label_encode(label_encoders, "direction_id", "I", default=0)
@@ -416,6 +436,41 @@ async def predict_and_broadcast(payload: BusPayload, request: Request):
     )
     await manager.broadcast(result.dict())
     return result
+
+
+@router.post(
+    "/predict/occupancy/for-viewer",
+    response_model=OccupancyForViewerResponse,
+    summary="Recomputes a bus's occupancy using the viewer's local time",
+)
+async def predict_occupancy_for_viewer(payload: OccupancyForViewerRequest, request: Request):
+    """
+    The occupancy model's hour/day_of_week/is_rush_hour features normally
+    come from the simulator's own machine clock — whoever happens to be
+    running raspberry-pi/simulator.py, which has nothing to do with
+    whoever is looking at the dashboard. This re-runs the same model for
+    one bus using the caller's own local time instead, so the OCUPACIÓN
+    block reflects "now" for whoever opened the page, not for wherever
+    the simulator happens to be running.
+
+    record_history=False: this can be called far more often than the
+    simulator's real 5s tick (e.g. once per viewer, on every clock change),
+    and must not perturb the real loading_lag_1/2 tracking used by the
+    actual simulator-driven prediction in /predict/eta.
+    """
+    models = request.app.state.models
+    base = models.get("last_payload_by_bus", {}).get(payload.bus_id)
+    if base is None:
+        raise HTTPException(status_code=404, detail=f"No telemetry yet for bus_id '{payload.bus_id}'")
+
+    viewer_payload = base.copy(update={
+        "hour": payload.hour,
+        "day_of_week": payload.day_of_week,
+        "is_rush_hour": payload.is_rush_hour,
+    })
+    occ_class, occ_pct = _predict_occupancy(viewer_payload, models, record_history=False)
+
+    return OccupancyForViewerResponse(bus_id=payload.bus_id, occupancy_class=occ_class, occupancy_pct=occ_pct)
 
 
 @router.post(
