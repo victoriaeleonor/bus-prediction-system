@@ -26,12 +26,24 @@
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  html { height: 100%; }
+
   body {
     background: var(--bg);
     color: var(--text);
     font-family: var(--sans);
+    /* 100vh on iOS Safari is measured with its address bar hidden, i.e.
+       taller than what's actually on screen when it's showing — the page
+       ends up taller than the visible area, so Safari can shift the whole
+       viewport (address bar collapses) and the fixed 52px header slides up
+       under the iPhone's status bar. 100dvh tracks the REAL visible height
+       as Safari's chrome shows/hides, so the header never moves. Kept as a
+       fallback pair (not an @supports block) so browsers without dvh just
+       keep using the vh line above it. */
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
+    overscroll-behavior: none;
     display: grid;
     grid-template-rows: 52px 1fr;
     grid-template-columns: 320px 1fr;
