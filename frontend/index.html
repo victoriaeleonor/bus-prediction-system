@@ -640,17 +640,21 @@ try {
 const STOP_COLOR        = '#6366f1'; // indigo — normal stops
 const STOP_ACTIVE_COLOR = '#f59e0b'; // gold/amber — the bus's next stop
 
-// Selector highlight rings — distinct from the route/bus/active-stop
-// colors already in use, and distinct from each other so origin vs
-// destination is obvious at a glance. Drawn as separate concentric rings
-// (not a single overwritten color) so selecting the same stop in more
-// than one dropdown at once shows as stacked rings instead of one
-// selector's highlight silently replacing another's.
+// Selector highlight ring — one color per GROUP, not per selector: origin
+// and destination share the same "trip planner" ring instead of two
+// different colors, and only ONE group's ring shows at a time (see
+// activeSelectionGroup below) — touching either "¿Cuándo llega mi bus?" or
+// the trip planner clears the other's ring entirely, so a stop never ends
+// up wearing rings from both at once and confusing which selector it belongs to.
 const SELECT_RING_COLORS = {
-  myStop:      '#ec4899', // pink   — "¿Cuándo llega mi bus?"
-  origin:      '#22c55e', // green  — trip planner origin
-  destination: '#a855f7', // purple — trip planner destination
+  myStop:      '#ec4899', // pink  — "¿Cuándo llega mi bus?"
+  tripPlanner: '#475569', // slate — trip planner (origin AND destination) —
+                          // deliberately muted/neutral, unlike every other
+                          // color already used on the site (accent orange,
+                          // occupancy greens/reds, bus/stop identity colors)
 };
+
+let activeSelectionGroup = null; // 'myStop' | 'tripPlanner' | null — which selector's ring is currently shown
 
 function makeStopIcon(isActive, selection = {}) {
   const size     = isActive ? 28 : 22;
@@ -658,20 +662,18 @@ function makeStopIcon(isActive, selection = {}) {
   const anim     = isActive ? 'stopPulseActive' : 'stopPulse';
   const duration = isActive ? '1.3s' : '2.6s';
 
-  const ringColors = ['myStop', 'origin', 'destination']
-    .filter(key => selection[key])
-    .map(key => SELECT_RING_COLORS[key]);
-  const ringsHtml = ringColors.map((ringColor, i) => {
-    const d = size + 12 + i * 9; // each extra ring sits a bit further out, concentric
-    const off = d / 2;
-    return `<div class="stop-select-ring" style="width:${d}px;height:${d}px;margin-top:-${off}px;margin-left:-${off}px;border-color:${ringColor};"></div>`;
-  }).join('');
+  const ringColor = selection.myStop ? SELECT_RING_COLORS.myStop
+                   : selection.tripPlanner ? SELECT_RING_COLORS.tripPlanner
+                   : null;
+  const ringHtml = ringColor
+    ? `<div class="stop-select-ring" style="width:${size + 12}px;height:${size + 12}px;margin-top:-${(size + 12) / 2}px;margin-left:-${(size + 12) / 2}px;border-color:${ringColor};"></div>`
+    : '';
 
   return L.divIcon({
     className: '',
     html: `
       <div class="stop-marker-wrap" style="width:${size}px;height:${size}px;">
-        ${ringsHtml}
+        ${ringHtml}
         <div class="stop-pulse" style="background:${color}; animation-name:${anim}; animation-duration:${duration};"></div>
         <div class="stop-dot" style="width:${size}px;height:${size}px;background:${color};"></div>
       </div>`,
@@ -682,11 +684,13 @@ function makeStopIcon(isActive, selection = {}) {
 
 function selectionStateFor(i) {
   const val = id => { const v = document.getElementById(id).value; return v === '' ? null : parseInt(v, 10); };
-  return {
-    myStop:      i === val('my-stop-select'),
-    origin:      i === val('trip-origin'),
-    destination: i === val('trip-destination'),
-  };
+  if (activeSelectionGroup === 'myStop') {
+    return { myStop: i === val('my-stop-select'), tripPlanner: false };
+  }
+  if (activeSelectionGroup === 'tripPlanner') {
+    return { myStop: false, tripPlanner: i === val('trip-origin') || i === val('trip-destination') };
+  }
+  return { myStop: false, tripPlanner: false };
 }
 
 function rebuildStopIcon(i) {
@@ -829,8 +833,17 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 // Highlight the corresponding map marker the instant a stop selector
 // changes — same rebuildStopIcon()/selectionStateFor() path drawRoute()
 // and setActiveStop() already use, so rings never fall out of sync.
-['my-stop-select', 'trip-origin', 'trip-destination'].forEach(id => {
-  document.getElementById(id).addEventListener('change', refreshAllStopIcons);
+// Touching either selector group also makes it the ACTIVE one, clearing
+// the other group's ring so the two never show at the same time.
+[
+  ['my-stop-select', 'myStop'],
+  ['trip-origin', 'tripPlanner'],
+  ['trip-destination', 'tripPlanner'],
+].forEach(([id, group]) => {
+  document.getElementById(id).addEventListener('change', () => {
+    activeSelectionGroup = group;
+    refreshAllStopIcons();
+  });
 });
 
 document.getElementById('use-location-btn').addEventListener('click', () => {
@@ -853,6 +866,7 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
         if (d < bestDist) { bestDist = d; bestIdx = i; }
       });
       document.getElementById('my-stop-select').value = bestIdx;
+      activeSelectionGroup = 'myStop';
       refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
       setMyLocationMarker(latitude, longitude);
       map.fitBounds([[latitude, longitude], ROUTE_STOPS[bestIdx]], { padding: [60, 60], animate: false });
@@ -991,6 +1005,7 @@ let selectedBus   = LINE_BUS_ID[selectedLine]; // which bus's data the WHOLE
 function switchLine(lineId) {
   selectedLine = lineId;
   loadRoute(lineId);
+  activeSelectionGroup = null; // neither selector has been touched for this line yet
 
   // Clear every bus marker from the previous line first — they get rebuilt
   // below from whatever's cached for the new one, if anything.
