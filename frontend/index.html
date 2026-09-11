@@ -187,17 +187,19 @@
     text-transform: uppercase;
     font-weight: 700;
   }
-  #bus-select {
+  #s-selected-bus {
     display: block;
     width: 100%;
     background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
+    color: var(--muted);
+    border: 1px dashed var(--border);
     border-radius: 6px;
     padding: 6px 8px;
-    font-family: var(--sans);
+    font-family: var(--mono);
     font-size: 12px;
     margin-bottom: 8px;
+    cursor: default;
+    box-sizing: border-box;
   }
   .occ-track {
     background: var(--bg);
@@ -453,7 +455,7 @@
       <span class="occ-title" data-i18n="occupancy">OCCUPANCY</span>
       <span class="occ-badge" id="s-occ-badge">—</span>
     </div>
-    <select id="bus-select" title="Elegir bus / Choose bus"></select>
+    <div id="s-selected-bus" title="Tocá un bus en el mapa para elegirlo / Tap a bus on the map to pick it">Bus 001</div>
     <div class="occ-track"><div class="occ-fill" id="s-occ-fill" style="width:0%"></div></div>
     <div class="occ-pct" id="s-occ-pct">0%</div>
   </div>
@@ -871,7 +873,7 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
     const res = await fetch(TRIP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin_stop_id: stopId, destination_stop_id: stopId, route_id: selectedLine }),
+      body: JSON.stringify({ origin_stop_id: stopId, destination_stop_id: stopId, route_id: selectedLine, bus_id: selectedBus }),
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
@@ -925,7 +927,7 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
     const res = await fetch(TRIP_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin_stop_id: origin, destination_stop_id: destination, route_id: selectedLine }),
+      body: JSON.stringify({ origin_stop_id: origin, destination_stop_id: destination, route_id: selectedLine, bus_id: selectedBus }),
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
@@ -966,41 +968,32 @@ function loadRoute(lineId, attempt = 1) {
 
 // ── line picker ──────────────────────────────────────────────────────────
 let selectedLine = '38';
-let busStateByLine = {}; // last known PredictionResponse from each line's PRIMARY
-                          // bus, so switching lines shows data instantly if we
-                          // already have it
-let busStateByBus = {};  // last known PredictionResponse per bus_id, ANY bus —
-                          // powers the "which bus's occupancy" selector
-let selectedOccupancyBus = LINE_BUS_ID[selectedLine]; // which bus's data drives the OCUPACIÓN block
+let busStateByBus = {};  // last known PredictionResponse per bus_id, ANY bus
+let selectedBus   = LINE_BUS_ID[selectedLine]; // which bus's data the WHOLE
+                                                // sidebar (ETA, next stop,
+                                                // occupancy) currently shows —
+                                                // click a bus on the map to change it
 
 function switchLine(lineId) {
   selectedLine = lineId;
   loadRoute(lineId);
-  resetBusSelector(lineId); // sets selectedOccupancyBus to this line's primary
 
-  // Clear every bus marker from the previous line — they get rebuilt below
-  // from whatever's cached for the new one, if anything.
+  // Clear every bus marker from the previous line first — they get rebuilt
+  // below from whatever's cached for the new one, if anything.
   Object.values(busMarkers).forEach(m => map.removeLayer(m));
   busMarkers = {};
   lastBusIconKey = {};
   firstMove = true;
 
-  const cached = busStateByLine[lineId]; // primary bus's cached state
-  if (cached) {
-    setBusPosition(cached.bus_id, cached.lat, cached.lon, cached.occupancy_class);
-    updateSidebar(cached);
-    updateActiveStopMarker(cached.lat, cached.lon);
-  } else {
-    setNoDataVisible(true);
-    resetSidebar();
-  }
+  // Default back to this line's primary bus; selectBus() itself renders the
+  // sidebar/occupancy/active-stop from cache, or resets them if there's none.
+  selectBus(LINE_BUS_ID[lineId], { skipMarkerRefresh: true });
+  if (!busStateByBus[selectedBus]) setNoDataVisible(true);
 
-  // Any OTHER bus already known for this line (e.g. switched away and back
-  // after it started sending) gets its marker back too, not just the primary.
+  // Rebuild a marker for every bus already known for this line (not just
+  // the selected one) — e.g. switched away and back after both started sending.
   Object.values(busStateByBus).forEach(b => {
-    if (b.route_id === lineId && b.bus_id !== LINE_BUS_ID[lineId]) {
-      setBusPosition(b.bus_id, b.lat, b.lon, b.occupancy_class);
-    }
+    if (b.route_id === lineId) setBusPosition(b.bus_id, b.lat, b.lon, b.occupancy_class);
   });
 }
 
@@ -1009,9 +1002,26 @@ function resetSidebar() {
   document.getElementById('s-next-stop').textContent = '—';
 }
 
-// ── OCUPACIÓN block: driven by whichever bus is picked in #bus-select,
-// independently of the ETA/next-stop fields above (those always follow
-// the line's primary bus — see updateSidebar()). ─────────────────────────
+// Click a bus's marker on the map to make it the one the whole sidebar
+// (ETA, next stop, OCUPACIÓN) reflects, and the one the trip planner /
+// "¿cuándo llega mi bus?" compute against — no dropdown, the map IS the picker.
+function selectBus(busId, { skipMarkerRefresh = false } = {}) {
+  selectedBus = busId;
+  document.getElementById('s-selected-bus').textContent = 'Bus ' + busId.replace('bus_', '');
+
+  const cached = busStateByBus[busId];
+  if (cached) {
+    updateSidebar(cached);
+    updateActiveStopMarker(cached.lat, cached.lon);
+  } else {
+    resetSidebar();
+  }
+  refreshOccupancyForBus(busId);
+  if (!skipMarkerRefresh) refreshBusMarkerEmphasis();
+}
+
+// ── OCUPACIÓN block: driven by whichever bus is currently selected
+// (see selectBus()) — same bus the ETA/next-stop fields above follow. ────
 function updateOccupancyBlock(d) {
   const pct   = d.occupancy_pct ?? 0;
   const cls   = d.occupancy_class ?? 'low';
@@ -1063,46 +1073,16 @@ async function refreshOccupancyForBus(busId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bus_id: busId, ...viewerTimeFeatures() }),
     });
-    if (busId !== selectedOccupancyBus) return; // selection changed while this was in flight
+    if (busId !== selectedBus) return; // selection changed while this was in flight
     if (!res.ok) { fallback(); return; }
     updateOccupancyBlock(await res.json());
   } catch (e) {
-    if (busId === selectedOccupancyBus) fallback();
+    if (busId === selectedBus) fallback();
   }
 }
 
-function addBusOption(busId) {
-  const sel = document.getElementById('bus-select');
-  if ([...sel.options].some(o => o.value === busId)) return;
-  const opt = document.createElement('option');
-  opt.value = busId;
-  opt.textContent = 'Bus ' + busId.replace('bus_', '');
-  sel.appendChild(opt);
-}
-
-// Called on every line switch: only the line's primary bus is guaranteed
-// to exist, so it's always option #1 — any other bus for this line
-// (staggered-start, may not have sent anything yet) is added as its own
-// telemetry arrives (see ws.onmessage).
-function resetBusSelector(lineId) {
-  const sel = document.getElementById('bus-select');
-  sel.innerHTML = '';
-  const primaryId = LINE_BUS_ID[lineId];
-  addBusOption(primaryId);
-  Object.values(busStateByBus).forEach(b => {
-    if (b.route_id === lineId && b.bus_id !== primaryId) addBusOption(b.bus_id);
-  });
-
-  selectedOccupancyBus = primaryId;
-  sel.value = primaryId;
-  refreshOccupancyForBus(primaryId);
-}
-
-document.getElementById('bus-select').addEventListener('change', (e) => {
-  selectedOccupancyBus = e.target.value;
-  refreshOccupancyForBus(selectedOccupancyBus);
-  refreshBusMarkerEmphasis();
-});
+// No dropdown to populate anymore — see selectBus(), wired to each bus
+// marker's click handler in setBusPosition() below.
 
 function populateLineSelect() {
   fetch(window.location.origin + '/route/lines')
@@ -1204,15 +1184,17 @@ function setNoDataVisible(visible) {
 // Renders/moves ONE bus's marker. Called for every bus of the currently
 // selected line (not just the primary) so both buses show up on the map
 // at once, each in its own BUS_ACCENT color; whichever is picked in
-// #bus-select is drawn larger with a stronger pulse (see makeBusIcon).
+// the currently selected bus (click a marker) is drawn larger with a stronger pulse (see makeBusIcon).
 function setBusPosition(busId, lat, lon, occClass) {
   setNoDataVisible(false); // showing a marker and the "no data" hint must never both be true
   const occColor    = OCC_COLORS[occClass] || '#c2410c';
-  const isSelected  = busId === selectedOccupancyBus;
+  const isSelected  = busId === selectedBus;
   const iconKey     = occColor + '|' + isSelected;
 
   if (!busMarkers[busId]) {
-    busMarkers[busId] = L.marker([lat, lon], { icon: makeBusIcon(occColor, busId, isSelected) }).addTo(map);
+    busMarkers[busId] = L.marker([lat, lon], { icon: makeBusIcon(occColor, busId, isSelected) })
+      .addTo(map)
+      .on('click', () => selectBus(busId));
     lastBusIconKey[busId] = iconKey;
   } else {
     busMarkers[busId].setLatLng([lat, lon]);
@@ -1230,14 +1212,14 @@ function setBusPosition(busId, lat, lon, occClass) {
 }
 
 // Re-applies the "selected" emphasis (bigger + stronger pulse) to whichever
-// bus is currently picked in #bus-select — called when that selection
+// bus is currently selected — called when that selection
 // changes, using each bus's own last known occupancy color rather than
 // waiting for its next tick to visually update.
 function refreshBusMarkerEmphasis() {
   Object.keys(busMarkers).forEach(busId => {
     const state    = busStateByBus[busId];
     const occColor = OCC_COLORS[state?.occupancy_class] || '#c2410c';
-    const isSelected = busId === selectedOccupancyBus;
+    const isSelected = busId === selectedBus;
     busMarkers[busId].setIcon(makeBusIcon(occColor, busId, isSelected));
     lastBusIconKey[busId] = occColor + '|' + isSelected;
   });
@@ -1296,7 +1278,7 @@ function updateSidebar(d) {
   document.getElementById('s-eta').textContent       = formatDuration(d.eta_minutes);
   document.getElementById('s-next-stop').textContent = d.next_stop || '—';
   // OCUPACIÓN is intentionally not touched here — see updateOccupancyBlock(),
-  // which follows whichever bus is picked in #bus-select instead of always
+  // which follows whichever bus is currently selected (see selectBus()) instead of always
   // the line's primary bus.
 }
 
@@ -1316,24 +1298,18 @@ function connectWS() {
       const d = JSON.parse(evt.data);
       busStateByBus[d.bus_id] = d;
 
-      // Every line can have more than one bus now — every bus of the
-      // currently shown line gets its own marker on the map, and the
-      // OCUPACIÓN block follows whichever one is picked in #bus-select.
-      if (d.route_id === selectedLine) {
-        addBusOption(d.bus_id); // no-op if already listed
-        setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class);
-        if (d.bus_id === selectedOccupancyBus) refreshOccupancyForBus(d.bus_id);
-      }
+      if (d.route_id !== selectedLine) return; // a different line's bus — not shown here at all
 
-      // ETA and next-stop always follow the line's primary bus only —
-      // letting a second bus drive them too would make them flicker
-      // between two buses' positions.
-      if (d.bus_id === LINE_BUS_ID[d.route_id]) {
-        busStateByLine[d.route_id] = d;
-        if (d.route_id === selectedLine) {
-          updateSidebar(d);
-          updateActiveStopMarker(d.lat, d.lon);
-        }
+      // Every bus of the current line gets its own marker on the map...
+      setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class);
+
+      // ...but the whole sidebar (ETA, next stop, OCUPACIÓN) only follows
+      // whichever bus is currently selected — click a bus on the map to
+      // change which one that is (see selectBus()).
+      if (d.bus_id === selectedBus) {
+        updateSidebar(d);
+        updateActiveStopMarker(d.lat, d.lon);
+        refreshOccupancyForBus(d.bus_id);
       }
     } catch (e) { console.warn('parse error', e); }
   };

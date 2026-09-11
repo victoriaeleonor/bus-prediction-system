@@ -133,6 +133,7 @@ class TripRequest(BaseModel):
     origin_stop_id: int       # index into the line's bus_stops, 0-based
     destination_stop_id: int  # index into the line's bus_stops, 0-based, must be >= origin_stop_id
     route_id: str = DEFAULT_LINE
+    bus_id: Optional[str] = None  # which of the line's buses to use; falls back to the line's primary if omitted
 
 
 class TripResponse(BaseModel):
@@ -506,7 +507,12 @@ async def predict_trip(payload: TripRequest, request: Request):
         raise HTTPException(status_code=400, detail="destination_stop_id must be at or after origin_stop_id")
 
     models = request.app.state.models
-    last_payload: Optional[BusPayload] = models.get("last_payload_by_route", {}).get(payload.route_id)
+    if payload.bus_id:
+        # A specific bus was picked (e.g. clicked on the map) — use its own
+        # telemetry rather than always the line's primary bus.
+        last_payload: Optional[BusPayload] = models.get("last_payload_by_bus", {}).get(payload.bus_id)
+    else:
+        last_payload = models.get("last_payload_by_route", {}).get(payload.route_id)
 
     def _segments_duration_m(from_stop: int, to_stop: int) -> tuple[float, float]:
         """Sum of (avg_time_min, distance_m) for segments[from_stop:to_stop]."""
