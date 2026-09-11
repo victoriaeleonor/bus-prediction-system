@@ -237,18 +237,36 @@
   .bus-dot {
     width: 28px; height: 28px;
     border-radius: 50%;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 4px rgba(194,65,12,.25), 0 0 12px rgba(194,65,12,.4);
-    animation: pulse 2s infinite;
+    border: 3px solid #fff;
+    box-sizing: border-box;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 15px;
     line-height: 1;
   }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(194,65,12,.25), 0 0 12px rgba(194,65,12,.4); }
-    50% { box-shadow: 0 0 0 8px rgba(194,65,12,.1), 0 0 20px rgba(194,65,12,.3); }
+  .bus-dot.selected { border-width: 4px; }
+  /* One named pulse per bus identity color (bus-dot's glow can't just read
+     an inline box-shadow — @keyframes fully defines that property for every
+     frame, overriding whatever was set inline — so each bus color gets its
+     own keyframe instead of trying to parameterize one). */
+  @keyframes busPulseCyan {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(8,145,178,.3), 0 0 12px rgba(8,145,178,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(8,145,178,.12), 0 0 20px rgba(8,145,178,.35); }
+  }
+  @keyframes busPulseLime {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(132,204,22,.3), 0 0 12px rgba(132,204,22,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(132,204,22,.12), 0 0 20px rgba(132,204,22,.35); }
+  }
+  @keyframes busPulseViolet {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(124,58,237,.3), 0 0 12px rgba(124,58,237,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(124,58,237,.12), 0 0 20px rgba(124,58,237,.35); }
+  }
+  @keyframes busPulsePink {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(219,39,119,.3), 0 0 12px rgba(219,39,119,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(219,39,119,.12), 0 0 20px rgba(219,39,119,.35); }
   }
 
   /* user location marker */
@@ -951,18 +969,32 @@ let selectedOccupancyBus = LINE_BUS_ID[selectedLine]; // which bus's data drives
 function switchLine(lineId) {
   selectedLine = lineId;
   loadRoute(lineId);
-  resetBusSelector(lineId);
+  resetBusSelector(lineId); // sets selectedOccupancyBus to this line's primary
 
-  const cached = busStateByLine[lineId];
+  // Clear every bus marker from the previous line — they get rebuilt below
+  // from whatever's cached for the new one, if anything.
+  Object.values(busMarkers).forEach(m => map.removeLayer(m));
+  busMarkers = {};
+  lastBusIconKey = {};
+  firstMove = true;
+
+  const cached = busStateByLine[lineId]; // primary bus's cached state
   if (cached) {
-    setBusPosition(cached.lat, cached.lon, cached.occupancy_class);
+    setBusPosition(cached.bus_id, cached.lat, cached.lon, cached.occupancy_class);
     updateSidebar(cached);
+    updateActiveStopMarker(cached.lat, cached.lon);
   } else {
-    if (busMarker) { map.removeLayer(busMarker); busMarker = null; lastBusColor = null; }
     setNoDataVisible(true);
     resetSidebar();
-    firstMove = true;
   }
+
+  // Any OTHER bus already known for this line (e.g. switched away and back
+  // after it started sending) gets its marker back too, not just the primary.
+  Object.values(busStateByBus).forEach(b => {
+    if (b.route_id === lineId && b.bus_id !== LINE_BUS_ID[lineId]) {
+      setBusPosition(b.bus_id, b.lat, b.lon, b.occupancy_class);
+    }
+  });
 }
 
 function resetSidebar() {
@@ -1030,6 +1062,7 @@ document.getElementById('bus-select').addEventListener('change', (e) => {
   const cached = busStateByBus[selectedOccupancyBus];
   if (cached) updateOccupancyBlock(cached);
   else resetOccupancyBlock();
+  refreshBusMarkerEmphasis();
 });
 
 function populateLineSelect() {
@@ -1064,12 +1097,33 @@ populateLineSelect();
 
 
 // ── bus marker ───────────────────────────────────────────────────────────
-function makeBusIcon(color) {
+// Each bus keeps a fixed identity color (border/glow) regardless of line
+// switching, distinct from occupancy (the dot's fill) so both pieces of
+// information stay visible at once. Primary buses reuse their line's own
+// route-track color (bus_001/bus_002) for visual consistency; the second,
+// staggered-start bus on each line gets its own new color.
+const BUS_ACCENT = {
+  bus_001: { color: '#0891b2', pulse: 'busPulseCyan' },
+  bus_003: { color: '#84cc16', pulse: 'busPulseLime' },
+  bus_002: { color: '#7c3aed', pulse: 'busPulseViolet' },
+  bus_004: { color: '#db2777', pulse: 'busPulsePink' },
+};
+
+function makeBusIcon(occColor, busId, isSelected) {
+  const accent = BUS_ACCENT[busId] || { color: '#c2410c', pulse: 'busPulseCyan' };
+  const size = isSelected ? 34 : 26;
+  const fontSize = isSelected ? 17 : 13;
   return L.divIcon({
     className: '',
-    html: `<div class="bus-marker-wrap"><div class="bus-dot" style="background:${color}">🚌</div></div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    html: `
+      <div class="bus-marker-wrap">
+        <div class="bus-dot${isSelected ? ' selected' : ''}"
+             style="width:${size}px;height:${size}px;font-size:${fontSize}px;
+                    background:${occColor}; border-color:${accent.color};
+                    animation-name:${accent.pulse};">🚌</div>
+      </div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -1093,9 +1147,9 @@ function setMyLocationMarker(lat, lon) {
   }
 }
 
-let busMarker = null;
+let busMarkers    = {}; // one Leaflet marker per bus_id currently shown on the map
+let lastBusIconKey = {}; // per bus_id, so the icon DOM is only rebuilt when something visible actually changed
 let firstMove = true;
-let lastBusColor = null;
 
 const OCC_COLORS = {
   low:       '#22c55e',
@@ -1108,26 +1162,46 @@ function setNoDataVisible(visible) {
   document.getElementById('no-data').style.display = visible ? '' : 'none';
 }
 
-function setBusPosition(lat, lon, occClass) {
+// Renders/moves ONE bus's marker. Called for every bus of the currently
+// selected line (not just the primary) so both buses show up on the map
+// at once, each in its own BUS_ACCENT color; whichever is picked in
+// #bus-select is drawn larger with a stronger pulse (see makeBusIcon).
+function setBusPosition(busId, lat, lon, occClass) {
   setNoDataVisible(false); // showing a marker and the "no data" hint must never both be true
-  const color = OCC_COLORS[occClass] || '#c2410c';
-  if (!busMarker) {
-    busMarker = L.marker([lat, lon], { icon: makeBusIcon(color) }).addTo(map);
-    lastBusColor = color;
+  const occColor    = OCC_COLORS[occClass] || '#c2410c';
+  const isSelected  = busId === selectedOccupancyBus;
+  const iconKey     = occColor + '|' + isSelected;
+
+  if (!busMarkers[busId]) {
+    busMarkers[busId] = L.marker([lat, lon], { icon: makeBusIcon(occColor, busId, isSelected) }).addTo(map);
+    lastBusIconKey[busId] = iconKey;
   } else {
-    busMarker.setLatLng([lat, lon]);
-    // Only rebuild the icon's DOM when the color actually changes —
+    busMarkers[busId].setLatLng([lat, lon]);
+    // Only rebuild the icon's DOM when something visible actually changed —
     // recreating it on every tick caused the marker to flicker/disappear.
-    if (color !== lastBusColor) {
-      busMarker.setIcon(makeBusIcon(color));
-      lastBusColor = color;
+    if (lastBusIconKey[busId] !== iconKey) {
+      busMarkers[busId].setIcon(makeBusIcon(occColor, busId, isSelected));
+      lastBusIconKey[busId] = iconKey;
     }
   }
   if (firstMove) {
     map.setView([lat, lon], 15);
     firstMove = false;
   }
-  updateActiveStopMarker(lat, lon);
+}
+
+// Re-applies the "selected" emphasis (bigger + stronger pulse) to whichever
+// bus is currently picked in #bus-select — called when that selection
+// changes, using each bus's own last known occupancy color rather than
+// waiting for its next tick to visually update.
+function refreshBusMarkerEmphasis() {
+  Object.keys(busMarkers).forEach(busId => {
+    const state    = busStateByBus[busId];
+    const occColor = OCC_COLORS[state?.occupancy_class] || '#c2410c';
+    const isSelected = busId === selectedOccupancyBus;
+    busMarkers[busId].setIcon(makeBusIcon(occColor, busId, isSelected));
+    lastBusIconKey[busId] = occColor + '|' + isSelected;
+  });
 }
 
 // Highlights whichever stop marker is geographically closest to the bus
@@ -1203,22 +1277,23 @@ function connectWS() {
       const d = JSON.parse(evt.data);
       busStateByBus[d.bus_id] = d;
 
-      // Every line can have more than one bus now — the OCUPACIÓN block
-      // follows whichever one is picked in #bus-select, independent of
-      // which bus is this line's "main" one on the map/ETA/next-stop.
+      // Every line can have more than one bus now — every bus of the
+      // currently shown line gets its own marker on the map, and the
+      // OCUPACIÓN block follows whichever one is picked in #bus-select.
       if (d.route_id === selectedLine) {
         addBusOption(d.bus_id); // no-op if already listed
+        setBusPosition(d.bus_id, d.lat, d.lon, d.occupancy_class);
         if (d.bus_id === selectedOccupancyBus) updateOccupancyBlock(d);
       }
 
-      // Map marker, ETA and next-stop always follow the line's primary bus
-      // only — letting a second bus drive them too would make them
-      // flicker between two buses' positions.
+      // ETA and next-stop always follow the line's primary bus only —
+      // letting a second bus drive them too would make them flicker
+      // between two buses' positions.
       if (d.bus_id === LINE_BUS_ID[d.route_id]) {
         busStateByLine[d.route_id] = d;
         if (d.route_id === selectedLine) {
-          setBusPosition(d.lat, d.lon, d.occupancy_class);
           updateSidebar(d);
+          updateActiveStopMarker(d.lat, d.lon);
         }
       }
     } catch (e) { console.warn('parse error', e); }
