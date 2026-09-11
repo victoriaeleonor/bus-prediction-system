@@ -706,9 +706,23 @@ function drawRoute({ coordinates, stops, stop_names }, lineId) {
     });
     stopMarkers.push(marker);
   });
-  refreshAllStopIcons(); // apply whatever the 3 stop selectors already have selected
+  // Reset the 3 selectors to this line's defaults *before* painting rings
+  // from them — a stop index from the previous line points at a different
+  // physical stop here, so preserving it would ring the wrong marker.
+  populateStopSelects(false);
+  refreshAllStopIcons();
+  resetTripResults();
   console.log(`✓ Route drawn: ${coordinates.length} pts, ${stops.length} stops`);
-  populateStopSelects();
+}
+
+// Clears any ETA/duration shown from a calculation made on the previous
+// line — those minutes/stop names don't carry over and switching lines
+// should never leave a stale result on screen.
+function resetTripResults() {
+  document.getElementById('my-stop-result').style.display = 'none';
+  document.getElementById('my-stop-error').style.display  = 'none';
+  document.getElementById('trip-result').style.display    = 'none';
+  document.getElementById('trip-error').style.display     = 'none';
 }
 
 function stopOptionLabel(i) {
@@ -718,15 +732,18 @@ function stopOptionLabel(i) {
   return street || `${I18N[currentLang].stopLabel} ${i + 1}`;
 }
 
-function populateStopSelects() {
+function populateStopSelects(preserveSelection = true) {
   const originSel = document.getElementById('trip-origin');
   const destSel    = document.getElementById('trip-destination');
   const myStopSel  = document.getElementById('my-stop-select');
   if (!ROUTE_STOPS.length || !originSel || !destSel || !myStopSel) return;
 
-  const prevOrigin = originSel.value;
-  const prevDest   = destSel.value;
-  const prevMyStop = myStopSel.value;
+  // preserveSelection=false on a line switch — a stop index selected on
+  // the previous line points at a different physical stop on this one, so
+  // restoring it would silently show the wrong place instead of resetting.
+  const prevOrigin = preserveSelection ? originSel.value : '';
+  const prevDest   = preserveSelection ? destSel.value   : '';
+  const prevMyStop = preserveSelection ? myStopSel.value : '';
 
   [originSel, destSel, myStopSel].forEach(sel => { sel.innerHTML = ''; });
   ROUTE_STOPS.forEach((_, i) => {
