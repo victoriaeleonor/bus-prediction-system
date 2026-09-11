@@ -1332,6 +1332,14 @@ function selectBus(busId, { skipMarkerRefresh = false } = {}) {
   const cached = busStateByBus[busId];
   if (cached) {
     updateSidebar(cached);
+    // activeStopIndex tracks ONE bus at a time and, once set, only compares
+    // against its immediate neighbors (see updateActiveStopMarker) to avoid
+    // jumping backward on GPS noise — but that same restriction means it
+    // can't "catch up" to a newly selected bus that's elsewhere on the
+    // route. Resetting it here forces a fresh nearest-of-all search for
+    // whichever bus was just picked, instead of highlighting a stop that
+    // was only ever close to the PREVIOUSLY selected bus.
+    activeStopIndex = null;
     updateActiveStopMarker(cached.lat, cached.lon);
   } else {
     resetSidebar();
