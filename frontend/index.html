@@ -671,8 +671,12 @@ const PREDICT_URL = window.location.origin + '/predict/eta/broadcast';
 const TRIP_URL     = window.location.origin + '/predict/trip';
 
 // ── formatting helpers ──────────────────────────────────────────────────
-// Renders a minutes value as seconds below 1 min, "Nmin" below 1h, and
-// "Hh Nmin" beyond that, instead of raw fractional/triple-digit minutes.
+// Below 60s: seconds only ("45 s"). At 60s or more (and under an hour):
+// minutes plus any leftover seconds, never rounded away ("1 min 10 s",
+// "3 min 45 s" — but just "3 min" when it lands on an exact minute). An
+// hour or more still rolls over to "Nh Mmin" (durations this long don't
+// come up in practice for a single bus leg, but the rollover avoids ever
+// printing something like "125 min").
 function formatDuration(totalMinutes) {
   if (totalMinutes == null || isNaN(totalMinutes)) return '—';
   let totalSeconds = Math.round(totalMinutes * 60);
@@ -681,9 +685,9 @@ function formatDuration(totalMinutes) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds - minutes * 60;
 
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
-  if (minutes > 0) return `${minutes}min`;
-  return `${seconds}s`;
+  if (hours > 0) return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+  if (minutes > 0) return seconds > 0 ? `${minutes} min ${seconds} s` : `${minutes} min`;
+  return `${seconds} s`;
 }
 
 // ── i18n ─────────────────────────────────────────────────────────────────
