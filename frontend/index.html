@@ -420,7 +420,7 @@
 <body>
 
 <header>
-  <div class="logo">BUS PREDICTION <span style="font-size:10px;margin-left:8px;opacity:.5">v1.0</span></div>
+  <div class="logo">BUS PREDICTION</div>
   <div style="display:flex; align-items:center; gap:14px;">
     <div id="conn-status">
       <div id="conn-dot"></div>
@@ -549,6 +549,7 @@ const I18N = {
     locationSet: 'Parada más cercana seleccionada según tu ubicación.',
     tripErrorGeneric: 'No se pudo calcular el viaje.',
     busAlreadyPassed: '🚌 El bus ya pasó por esta parada.',
+    occLow: 'BAJA', occMedium: 'MEDIA', occHigh: 'ALTA', occVeryHigh: 'MUY ALTA',
   },
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
@@ -567,15 +568,31 @@ const I18N = {
     locationSet: 'Nearest stop selected based on your location.',
     tripErrorGeneric: 'Could not calculate the trip.',
     busAlreadyPassed: '🚌 The bus already went past this stop.',
+    occLow: 'LOW', occMedium: 'MEDIUM', occHigh: 'HIGH', occVeryHigh: 'VERY HIGH',
   },
 };
 let currentLang = 'es';
+
+// Sets `el`'s text from the current language's dict and remembers the key
+// (via a data attribute) so applyI18n() can re-render it later — plain
+// data-i18n only covers text baked into the HTML at load time; these
+// messages (geolocation results, trip-planner errors) are set dynamically
+// from JS, so without this they'd stay in whatever language was active
+// when they were last shown, even after the user switches languages.
+function setDynamicMessage(el, key) {
+  el.dataset.i18nDynamic = key;
+  el.textContent = I18N[currentLang][key];
+}
 
 function applyI18n() {
   const dict = I18N[currentLang];
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
     if (dict[key] !== undefined) el.innerHTML = dict[key];
+  });
+  document.querySelectorAll('[data-i18n-dynamic]').forEach(el => {
+    const key = el.dataset.i18nDynamic;
+    if (dict[key] !== undefined) el.textContent = dict[key];
   });
   document.getElementById('lang-toggle').textContent = currentLang === 'es' ? 'EN' : 'ES';
   document.getElementById('use-location-btn').title = dict.useLocationTitle;
@@ -818,11 +835,10 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 
 document.getElementById('use-location-btn').addEventListener('click', () => {
   const errorBox = document.getElementById('my-stop-error');
-  const dict     = I18N[currentLang];
   errorBox.style.display = 'none';
 
   if (!navigator.geolocation) {
-    errorBox.textContent   = dict.locationUnsupported;
+    setDynamicMessage(errorBox, 'locationUnsupported');
     errorBox.style.display = 'block';
     return;
   }
@@ -846,13 +862,13 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
       // away right after fitBounds set it deliberately.
       firstMove = false;
       errorBox.style.color   = 'var(--accent)';
-      errorBox.textContent   = dict.locationSet;
+      setDynamicMessage(errorBox, 'locationSet');
       errorBox.style.display = 'block';
     },
     (err) => {
       console.warn('Geolocation error:', err);
       errorBox.style.color   = 'var(--very_high)';
-      errorBox.textContent   = err.code === err.PERMISSION_DENIED ? dict.locationDenied : dict.locationError;
+      setDynamicMessage(errorBox, err.code === err.PERMISSION_DENIED ? 'locationDenied' : 'locationError');
       errorBox.style.display = 'block';
     },
     { enableHighAccuracy: true, timeout: 8000 }
@@ -864,7 +880,6 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
   const stopId    = parseInt(document.getElementById('my-stop-select').value, 10);
   const errorBox  = document.getElementById('my-stop-error');
   const resultBox = document.getElementById('my-stop-result');
-  const dict      = I18N[currentLang];
 
   errorBox.style.display  = 'none';
   resultBox.style.display = 'none';
@@ -894,13 +909,13 @@ document.getElementById('my-stop-btn').addEventListener('click', async () => {
 
     if (d.bus_already_passed) {
       errorBox.style.color   = 'var(--medium)';
-      errorBox.textContent   = dict.busAlreadyPassed;
+      setDynamicMessage(errorBox, 'busAlreadyPassed');
       errorBox.style.display = 'block';
     }
   } catch (err) {
     console.error('My-stop ETA error:', err);
     errorBox.style.color   = 'var(--very_high)';
-    errorBox.textContent   = dict.myStopErrorGeneric;
+    setDynamicMessage(errorBox, 'myStopErrorGeneric');
     errorBox.style.display = 'block';
   }
 });
@@ -911,14 +926,13 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
   const destination = parseInt(document.getElementById('trip-destination').value, 10);
   const errorBox    = document.getElementById('trip-error');
   const resultBox   = document.getElementById('trip-result');
-  const dict        = I18N[currentLang];
 
   errorBox.style.color    = 'var(--very_high)';
   errorBox.style.display  = 'none';
   resultBox.style.display = 'none';
 
   if (destination < origin) {
-    errorBox.textContent   = dict.tripErrorRange;
+    setDynamicMessage(errorBox, 'tripErrorRange');
     errorBox.style.display = 'block';
     return;
   }
@@ -945,13 +959,13 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
 
     if (d.bus_already_passed) {
       errorBox.style.color   = 'var(--medium)';
-      errorBox.textContent   = dict.busAlreadyPassed;
+      setDynamicMessage(errorBox, 'busAlreadyPassed');
       errorBox.style.display = 'block';
     }
   } catch (err) {
     console.error('Trip planner error:', err);
     errorBox.style.color   = 'var(--very_high)';
-    errorBox.textContent   = dict.tripErrorGeneric;
+    setDynamicMessage(errorBox, 'tripErrorGeneric');
     errorBox.style.display = 'block';
   }
 });
@@ -1022,6 +1036,8 @@ function selectBus(busId, { skipMarkerRefresh = false } = {}) {
 
 // ── OCUPACIÓN block: driven by whichever bus is currently selected
 // (see selectBus()) — same bus the ETA/next-stop fields above follow. ────
+const OCC_LABEL_KEY = { low: 'occLow', medium: 'occMedium', high: 'occHigh', very_high: 'occVeryHigh' };
+
 function updateOccupancyBlock(d) {
   const pct   = d.occupancy_pct ?? 0;
   const cls   = d.occupancy_class ?? 'low';
@@ -1031,7 +1047,7 @@ function updateOccupancyBlock(d) {
   fill.style.background = color;
   document.getElementById('s-occ-pct').textContent = pct.toFixed(0) + '%';
   const badge = document.getElementById('s-occ-badge');
-  badge.textContent      = cls.replace('_', ' ').toUpperCase();
+  setDynamicMessage(badge, OCC_LABEL_KEY[cls] || 'occLow');
   badge.style.background = color;
 }
 
