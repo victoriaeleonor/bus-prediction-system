@@ -56,75 +56,75 @@
     },
     {
       "index": 9,
+      "lat": -25.3434146,
+      "lon": -57.5872986,
+      "street": "Mariscal José Félix Estigarribia"
+    },
+    {
+      "index": 10,
       "lat": -25.3393278,
       "lon": -57.5848601,
       "street": "Ruta Nacional Mariscal López (Acceso Sur)"
     },
     {
-      "index": 10,
-      "lat": -25.3342156,
-      "lon": -57.5783753,
-      "street": "Morotî"
-    },
-    {
       "index": 11,
-      "lat": -25.3315521,
-      "lon": -57.573606,
-      "street": "Cerro Corá"
-    },
-    {
-      "index": 12,
-      "lat": -25.3262448,
-      "lon": -57.5681832,
-      "street": "San José"
-    },
-    {
-      "index": 13,
-      "lat": -25.3213644,
-      "lon": -57.561914,
-      "street": "Guaraníes"
-    },
-    {
-      "index": 14,
-      "lat": -25.3155577,
-      "lon": -57.5596461,
-      "street": "Cirilo Antonio Rivarola"
-    },
-    {
-      "index": 15,
-      "lat": -25.3164865,
-      "lon": -57.5657134,
-      "street": "Teresa Lamas Caríssimo"
-    },
-    {
-      "index": 16,
-      "lat": -25.3178783,
-      "lon": -57.5724406,
-      "street": "Teniente José Felix Lopez"
-    },
-    {
-      "index": 17,
-      "lat": -25.3253631,
-      "lon": -57.5747725,
-      "street": "Oscar Bottana"
-    },
-    {
-      "index": 18,
-      "lat": -25.3323874,
-      "lon": -57.5762037,
-      "street": "Tacuara"
-    },
-    {
-      "index": 19,
       "lat": -25.3376004,
       "lon": -57.5827372,
       "street": "Maká"
     },
     {
+      "index": 12,
+      "lat": -25.3342156,
+      "lon": -57.5783753,
+      "street": "Morotî"
+    },
+    {
+      "index": 13,
+      "lat": -25.3315521,
+      "lon": -57.573606,
+      "street": "Cerro Corá"
+    },
+    {
+      "index": 14,
+      "lat": -25.3262448,
+      "lon": -57.5681832,
+      "street": "San José"
+    },
+    {
+      "index": 15,
+      "lat": -25.3213644,
+      "lon": -57.561914,
+      "street": "Guaraníes"
+    },
+    {
+      "index": 16,
+      "lat": -25.3155577,
+      "lon": -57.5596461,
+      "street": "Cirilo Antonio Rivarola"
+    },
+    {
+      "index": 17,
+      "lat": -25.3164865,
+      "lon": -57.5657134,
+      "street": "Teresa Lamas Caríssimo"
+    },
+    {
+      "index": 18,
+      "lat": -25.3178783,
+      "lon": -57.5724406,
+      "street": "Teniente José Felix Lopez"
+    },
+    {
+      "index": 19,
+      "lat": -25.3253631,
+      "lon": -57.5747725,
+      "street": "Oscar Bottana"
+    },
+    {
       "index": 20,
-      "lat": -25.3434146,
-      "lon": -57.5872986,
-      "street": "Mariscal José Félix Estigarribia"
+      "lat": -25.3323874,
+      "lon": -57.5762037,
+      "street": "Tacuara"
     }
   ]
 }
