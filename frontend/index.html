@@ -307,12 +307,42 @@
   }
 
   /* user location marker */
+  .my-location-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .my-location-dot {
     width: 16px; height: 16px;
     border-radius: 50%;
     background: #3b82f6;
     border: 2px solid #fff;
     box-shadow: 0 0 0 4px rgba(59,130,246,.3), 0 0 10px rgba(59,130,246,.5);
+  }
+
+  /* floating text label anchored below a marker — "Estás aquí" under the
+     user's location, "Esta es tu parada más cercana" under the highlighted
+     nearest stop. Absolutely positioned off a `position:relative` parent
+     sized to the marker itself, so it doesn't get clipped by the (small)
+     divIcon box. */
+  .map-label {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 6px;
+    white-space: nowrap;
+    background: rgba(20,24,31,.9);
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 5px;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    z-index: 5;
   }
 
   /* bus occupancy popup — shown right on the map when a bus marker is
@@ -401,6 +431,18 @@
     border: 3px solid;
     box-sizing: border-box;
     pointer-events: none;
+  }
+  /* The "nearest stop to you" ring specifically (not the trip-planner one)
+     gets a thicker border + a pulsing glow so it reads as "the recommended
+     one" at a glance, instead of looking like just another selection. */
+  .stop-select-ring-nearest {
+    border-width: 4px;
+    animation: nearestRingPulse 1.6s ease-out infinite;
+  }
+  @keyframes nearestRingPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(236,72,153,.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(236,72,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(236,72,153,0); }
   }
 
   /* hover tooltip for stop markers */
@@ -672,6 +714,7 @@ const I18N = {
     tripErrorGeneric: 'No se pudo calcular el viaje.',
     busAlreadyPassed: '🚌 El bus ya pasó por esta parada.',
     occLow: 'BAJA', occMedium: 'MEDIA', occHigh: 'ALTA', occVeryHigh: 'MUY ALTA',
+    youAreHere: 'Estás aquí', nearestStopLabel: 'Esta es tu parada más cercana',
   },
   en: {
     waitingData: 'waiting for data…', connectingLive: 'Connecting · Live',
@@ -691,6 +734,7 @@ const I18N = {
     tripErrorGeneric: 'Could not calculate the trip.',
     busAlreadyPassed: '🚌 The bus already went past this stop.',
     occLow: 'LOW', occMedium: 'MEDIUM', occHigh: 'HIGH', occVeryHigh: 'VERY HIGH',
+    youAreHere: 'You are here', nearestStopLabel: 'This is your nearest stop',
   },
 };
 let currentLang = 'es';
@@ -722,6 +766,13 @@ function applyI18n() {
   // Re-run the occupancy pipeline for the selected bus so its map popup
   // (badge label) picks up the new language too, in case it's open.
   if (selectedBus) refreshOccupancyForBus(selectedBus);
+  // Refreshes the "Esta es tu parada más cercana" stop label and the
+  // "Estás aquí" user-location label, in case either is currently showing.
+  refreshAllStopIcons();
+  if (myLocationMarker) {
+    myLocationMarker.setIcon(makeMyLocationIcon());
+    myLocationMarker.setPopupContent(`<b style="font-family:Georgia,'Times New Roman',serif">📍 ${dict.youAreHere}</b>`);
+  }
 }
 
 document.getElementById('lang-toggle').addEventListener('click', () => {
@@ -791,7 +842,9 @@ const SELECT_RING_COLORS = {
 let activeSelectionGroup = null; // 'myStop' | 'tripPlanner' | null — which selector's ring is currently shown
 
 function makeStopIcon(isActive, selection = {}) {
-  const size     = isActive ? 28 : 22;
+  // Shrunk from 28/22 — with 21 stops along the route, the old size made
+  // neighboring circles overlap/blur together at normal zoom levels.
+  const size     = isActive ? 20 : 14;
   const color    = isActive ? STOP_ACTIVE_COLOR : STOP_COLOR;
   const anim     = isActive ? 'stopPulseActive' : 'stopPulse';
   const duration = isActive ? '1.3s' : '2.6s';
@@ -800,7 +853,13 @@ function makeStopIcon(isActive, selection = {}) {
                    : selection.tripPlanner ? SELECT_RING_COLORS.tripPlanner
                    : null;
   const ringHtml = ringColor
-    ? `<div class="stop-select-ring" style="width:${size + 12}px;height:${size + 12}px;margin-top:-${(size + 12) / 2}px;margin-left:-${(size + 12) / 2}px;border-color:${ringColor};"></div>`
+    ? `<div class="stop-select-ring${selection.myStop ? ' stop-select-ring-nearest' : ''}" style="width:${size + 12}px;height:${size + 12}px;margin-top:-${(size + 12) / 2}px;margin-left:-${(size + 12) / 2}px;border-color:${ringColor};"></div>`
+    : '';
+  // Only the "nearest stop to you" selection gets the callout label — the
+  // trip-planner's origin/destination rings don't need one, they're already
+  // named in their own dropdowns.
+  const labelHtml = selection.myStop
+    ? `<div class="map-label">${I18N[currentLang].nearestStopLabel}</div>`
     : '';
 
   return L.divIcon({
@@ -810,6 +869,7 @@ function makeStopIcon(isActive, selection = {}) {
         ${ringHtml}
         <div class="stop-pulse" style="background:${color}; animation-name:${anim}; animation-duration:${duration};"></div>
         <div class="stop-dot" style="width:${size}px;height:${size}px;background:${color};"></div>
+        ${labelHtml}
       </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -1342,8 +1402,10 @@ const BUS_ACCENT = {
 
 function makeBusIcon(occColor, busId, isSelected) {
   const accent = BUS_ACCENT[busId] || { color: '#c2410c', pulse: 'busPulseCyan' };
-  const size = isSelected ? 34 : 26;
-  const fontSize = isSelected ? 17 : 13;
+  // Enlarged from 26/34 — the bus is the map's main subject, everything
+  // else (stops, rings, labels) should read as secondary to it.
+  const size = isSelected ? 46 : 36;
+  const fontSize = isSelected ? 25 : 19;
   return L.divIcon({
     className: '',
     html: `
@@ -1359,20 +1421,29 @@ function makeBusIcon(occColor, busId, isSelected) {
 }
 
 // ── "my location" marker ──────────────────────────────────────────────────
-const myLocationIcon = L.divIcon({
-  className: '',
-  html: '<div class="bus-marker-wrap"><div class="my-location-dot"></div></div>',
-  iconSize: [20, 20],
-  iconAnchor: [10, 10],
-});
+// Icon is a function (not a static constant) so applyI18n() can regenerate
+// it — "Estás aquí"/"You are here" needs to retranslate on a language switch
+// the same as everything else, without waiting for the marker to move.
+function makeMyLocationIcon() {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div class="my-location-wrap" style="width:16px;height:16px;">
+        <div class="my-location-dot"></div>
+        <div class="map-label">${I18N[currentLang].youAreHere}</div>
+      </div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
 
 let myLocationMarker = null;
 
 function setMyLocationMarker(lat, lon) {
   if (!myLocationMarker) {
-    myLocationMarker = L.marker([lat, lon], { icon: myLocationIcon, zIndexOffset: 500 })
+    myLocationMarker = L.marker([lat, lon], { icon: makeMyLocationIcon(), zIndexOffset: 500 })
       .addTo(map)
-      .bindPopup('<b style="font-family:Georgia,\'Times New Roman\',serif">📍 Mi ubicación</b>');
+      .bindPopup(`<b style="font-family:Georgia,'Times New Roman',serif">📍 ${I18N[currentLang].youAreHere}</b>`);
   } else {
     myLocationMarker.setLatLng([lat, lon]);
   }
