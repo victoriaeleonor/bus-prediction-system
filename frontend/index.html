@@ -807,6 +807,11 @@ document.getElementById('use-location-btn').addEventListener('click', () => {
       refreshAllStopIcons(); // setting .value programmatically doesn't fire 'change'
       setMyLocationMarker(latitude, longitude);
       map.fitBounds([[latitude, longitude], ROUTE_STOPS[bestIdx]], { padding: [60, 60], animate: false });
+      // Otherwise the next live bus update — if it's still the first one
+      // this page load has seen — immediately re-centers the map on the
+      // bus via setBusPosition()'s own firstMove logic, snapping the view
+      // away right after fitBounds set it deliberately.
+      firstMove = false;
       errorBox.style.color   = 'var(--accent)';
       errorBox.textContent   = dict.locationSet;
       errorBox.style.display = 'block';
