@@ -949,22 +949,49 @@ function setBusPosition(lat, lon, occClass) {
 // Highlights whichever stop marker is geographically closest to the bus
 // right now (the "próxima parada" shown in the sidebar) — swaps just the
 // two affected icons instead of rebuilding all 21 markers on every tick.
-function updateActiveStopMarker(lat, lon) {
-  if (!ROUTE_STOPS.length) return;
-  let nearestIdx = 0, nearestDist = Infinity;
-  ROUTE_STOPS.forEach(([slat, slon], i) => {
-    const d = haversineMeters(lat, lon, slat, slon);
-    if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-  });
-  if (nearestIdx === activeStopIndex) return;
-
+function setActiveStop(idx) {
+  if (idx === activeStopIndex) return;
   if (activeStopIndex !== null && stopMarkers[activeStopIndex]) {
     stopMarkers[activeStopIndex].setIcon(makeStopIcon(activeStopIndex + 1, false));
   }
-  if (stopMarkers[nearestIdx]) {
-    stopMarkers[nearestIdx].setIcon(makeStopIcon(nearestIdx + 1, true));
+  if (stopMarkers[idx]) {
+    stopMarkers[idx].setIcon(makeStopIcon(idx + 1, true));
   }
-  activeStopIndex = nearestIdx;
+  activeStopIndex = idx;
+}
+
+function updateActiveStopMarker(lat, lon) {
+  const n = ROUTE_STOPS.length;
+  if (!n) return;
+
+  if (activeStopIndex === null) {
+    // No baseline yet (line just loaded) — do one global nearest-of-all
+    // search to find a starting point.
+    let nearestIdx = 0, nearestDist = Infinity;
+    ROUTE_STOPS.forEach(([slat, slon], i) => {
+      const d = haversineMeters(lat, lon, slat, slon);
+      if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+    });
+    setActiveStop(nearestIdx);
+    return;
+  }
+
+  // After that, only compare against the current stop and its immediate
+  // neighbors (previous/next), never all 21. Real streets curve, so a
+  // straight-line "nearest of all" search can briefly find an already-
+  // passed stop closer than the one actually ahead and jump the highlight
+  // backward — restricting the candidates to adjacent stops means it can
+  // only ever step one stop forward or back, matching how the bus is
+  // actually moving along the route.
+  const candidates = [activeStopIndex, (activeStopIndex + 1) % n, (activeStopIndex - 1 + n) % n];
+  let bestIdx = activeStopIndex;
+  let bestDist = haversineMeters(lat, lon, ROUTE_STOPS[activeStopIndex][0], ROUTE_STOPS[activeStopIndex][1]);
+  candidates.forEach(i => {
+    const [slat, slon] = ROUTE_STOPS[i];
+    const d = haversineMeters(lat, lon, slat, slon);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  });
+  setActiveStop(bestIdx);
 }
 
 // ── sidebar update ───────────────────────────────────────────────────────
