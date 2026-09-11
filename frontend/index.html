@@ -296,6 +296,10 @@
     0%, 100% { box-shadow: 0 0 0 4px rgba(219,39,119,.3), 0 0 12px rgba(219,39,119,.5); }
     50%      { box-shadow: 0 0 0 8px rgba(219,39,119,.12), 0 0 20px rgba(219,39,119,.35); }
   }
+  @keyframes busPulseBlue {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(37,99,235,.3), 0 0 12px rgba(37,99,235,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(37,99,235,.12), 0 0 20px rgba(37,99,235,.35); }
+  }
 
   /* user location marker */
   .my-location-wrap {
@@ -925,6 +929,16 @@ function refreshAllStopIcons() {
   stopMarkers.forEach((_, i) => rebuildStopIcon(i));
 }
 
+// Dismisses the "nearest stop to you" ring + label the instant the user
+// touches anything else (a bus marker, or empty map space) — it otherwise
+// has no automatic expiry. Guarded to only ever clear the 'myStop' value
+// so it can never stomp an active trip-planner ('tripPlanner') selection.
+function clearMyStopSelection() {
+  if (activeSelectionGroup !== 'myStop') return;
+  activeSelectionGroup = null;
+  refreshAllStopIcons();
+}
+
 let ROUTE_STOPS = [];
 let STOP_NAMES  = [];
 let routeOutline = null;
@@ -1151,9 +1165,12 @@ document.getElementById('pick-location-btn').addEventListener('click', () => {
 });
 
 map.on('click', (e) => {
-  if (!pickingLocation) return;
-  setPickingLocation(false);
-  selectNearestStopFromPoint(e.latlng.lat, e.latlng.lng, { recenter: false, labelKey: 'pickedLocation' });
+  if (pickingLocation) {
+    setPickingLocation(false);
+    selectNearestStopFromPoint(e.latlng.lat, e.latlng.lng, { recenter: false, labelKey: 'pickedLocation' });
+    return; // this click is what's SETTING the selection — must not also clear it
+  }
+  clearMyStopSelection();
 });
 
 // ── quick "when does my bus arrive?" check (single stop) ───────────────────
@@ -1321,6 +1338,7 @@ function resetSidebar() {
 // (ETA, next stop, OCUPACIÓN) reflects, and the one the trip planner /
 // "¿cuándo llega mi bus?" compute against — no dropdown, the map IS the picker.
 function selectBus(busId, { skipMarkerRefresh = false } = {}) {
+  clearMyStopSelection(); // touching any bus dismisses a lingering "nearest stop" ring
   selectedBus = busId;
   document.getElementById('s-selected-bus').textContent = 'Bus ' + busId.replace('bus_', '');
 
@@ -1490,6 +1508,7 @@ const BUS_ACCENT = {
   bus_003: { color: '#84cc16', pulse: 'busPulseLime' },
   bus_002: { color: '#7c3aed', pulse: 'busPulseViolet' },
   bus_004: { color: '#db2777', pulse: 'busPulsePink' },
+  bus_006: { color: '#2563eb', pulse: 'busPulseBlue' },
 };
 
 function makeBusIcon(occColor, busId, isSelected) {

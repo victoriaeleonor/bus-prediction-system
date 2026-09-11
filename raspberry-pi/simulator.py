@@ -55,6 +55,7 @@ LINES = {
     },
     "15-1": {
         "bus_ids": ["bus_002", "bus_004"],
+        "return_bus_ids": ["bus_006"],   # starts already on the return leg — see main loop
         "route_name": "Línea 15-1",
         "route_id": "15-1",
         "route_file": "route_15_1.json",
@@ -102,6 +103,7 @@ CFG = LINES[args.line]
 
 # ── configuration ──────────────────────────────────────────────────────────
 BUS_IDS    = CFG["bus_ids"]  # [primary, ...staggered extras] — see LINES comment
+RETURN_BUS_IDS = CFG.get("return_bus_ids", [])  # buses that start mid-cycle on the return leg
 ROUTE_NAME = CFG["route_name"]
 ROUTE_ID   = CFG["route_id"]
 BUS_STOPS  = CFG["bus_stops"]
@@ -325,11 +327,11 @@ class BusState:
     single shared state.
     """
 
-    def __init__(self, bus_id, started):
+    def __init__(self, bus_id, started, start_index=0, start_stop_idx=0):
         self.bus_id = bus_id
-        self.index = 0             # tick counter -> position along ROUTE_COORDINATES
+        self.index = start_index   # tick counter -> position along ROUTE_COORDINATES
         self.started = started     # False for a staggered-start bus until unlocked
-        self._current_stop_idx = 0
+        self._current_stop_idx = start_stop_idx
         self._prev_lat = None
         self._prev_lon = None
         self._prev_time = None
@@ -419,13 +421,27 @@ def send_data(payload):
 # ── main ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"Simulating {ROUTE_NAME} ({', '.join(BUS_IDS)}) — sending every {INTERVAL}s to {BACKEND_URL}")
+    ALL_BUS_IDS = BUS_IDS + RETURN_BUS_IDS
+    print(f"Simulating {ROUTE_NAME} ({', '.join(ALL_BUS_IDS)}) — sending every {INTERVAL}s to {BACKEND_URL}")
     print("Dashboard: http://localhost:8000\n")
 
-    # buses[0] is the primary — it starts right away. Every other bus on
-    # this line waits (started=False) until the primary has passed Parada 1.
+    # buses[0] is the primary — it starts right away. Every other
+    # outbound-starting bus waits (started=False) until the primary has
+    # passed Parada 1, so two buses leaving the same terminal never stack.
+    # Return-leg buses spawn at the OPPOSITE terminal, already mid-cycle —
+    # nothing else starts there, so they start immediately, no stagger.
     primary, *extras = BUS_IDS
-    buses = [BusState(primary, started=True)] + [BusState(bus_id, started=False) for bus_id in extras]
+    buses = [BusState(primary, started=True)]
+    buses += [BusState(bus_id, started=False) for bus_id in extras]
+    buses += [
+        BusState(
+            bus_id,
+            started=True,
+            start_index=len(ROUTE_COORDINATES),   # exactly the start of the return leg
+            start_stop_idx=len(BUS_STOPS) - 1,    # last real stop — must match start_index
+        )
+        for bus_id in RETURN_BUS_IDS
+    ]
 
     while True:
         for bus in buses[1:]:
