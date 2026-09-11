@@ -337,6 +337,14 @@
     margin-bottom: 4px;
   }
   .bus-popup-pct { font-family: var(--mono); font-size: 13px; color: #fff; }
+  .bus-popup-people {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    margin: 3px 0 5px;
+  }
+  .bus-popup-person { display: block; }
 
   /* numbered stop markers */
   .stop-marker-wrap { position: relative; }
@@ -1175,6 +1183,10 @@ function selectBus(busId, { skipMarkerRefresh = false } = {}) {
 // ── OCUPACIÓN block: driven by whichever bus is currently selected
 // (see selectBus()) — same bus the ETA/next-stop fields above follow. ────
 const OCC_LABEL_KEY = { low: 'occLow', medium: 'occMedium', high: 'occHigh', very_high: 'occVeryHigh' };
+// How many of the 3 little-person icons are "filled in" (colored) per
+// occupancy level — high and very_high both fill all 3, just in a
+// different color (see OCC_COLORS), since there's no 4th icon to spare.
+const OCC_FILLED_COUNT = { low: 1, medium: 2, high: 3, very_high: 3 };
 
 function updateOccupancyBlock(d) {
   const pct   = d.occupancy_pct ?? 0;
@@ -1205,6 +1217,22 @@ function resetOccupancyBlock() {
 // Fills a bus marker's map popup with its occupancy — the "away from the
 // sidebar" answer to OCUPACIÓN, shown the instant a bus is tapped (see
 // selectBus()) and kept fresh by updateOccupancyBlock()/resetOccupancyBlock().
+// Solid "person" silhouette as inline SVG rather than an actual 🧑 emoji —
+// emoji are pre-colored glyphs (their own color font), so CSS `fill`/`color`
+// can't tint them per occupancy level; an SVG path can be colored exactly.
+const PERSON_SVG_PATH = 'M224 256A128 128 0 1 0 224 0a128 128 0 1 0 0 256zm-45.7 48C79.8 304 0 383.8 0 482.3C0 498.7 13.3 512 29.7 512l388.6 0c16.4 0 29.7-13.3 29.7-29.7C448 383.8 368.2 304 269.7 304l-91.4 0z';
+
+function personIconsHtml(occClass) {
+  const filled = OCC_FILLED_COUNT[occClass] || 0;
+  const color  = OCC_COLORS[occClass] || '#22c55e';
+  let html = '';
+  for (let i = 0; i < 3; i++) {
+    const fill = i < filled ? color : 'var(--border)';
+    html += `<svg class="bus-popup-person" viewBox="0 0 448 512" width="14" height="14" style="fill:${fill}"><path d="${PERSON_SVG_PATH}"/></svg>`;
+  }
+  return html;
+}
+
 function updateBusPopupContent(busId, occClass, pct) {
   const marker = busMarkers[busId];
   if (!marker) return;
@@ -1214,6 +1242,7 @@ function updateBusPopupContent(busId, occClass, pct) {
   marker.setPopupContent(
     `<div class="bus-popup-title">Bus ${busId.replace('bus_', '')}</div>
      <div class="bus-popup-badge" style="background:${color}">${label}</div>
+     <div class="bus-popup-people">${personIconsHtml(occClass)}</div>
      ${hasData ? `<div class="bus-popup-pct">${pct.toFixed(0)}%</div>` : ''}`
   );
 }
