@@ -1261,12 +1261,11 @@ document.getElementById('trip-calc-btn').addEventListener('click', async () => {
         map.fitBounds([ROUTE_STOPS[origin], ROUTE_STOPS[destination]], { padding: [60, 60], animate: false });
       }
     }
-
-    if (d.bus_already_passed) {
-      errorBox.style.color   = 'var(--medium)';
-      setDynamicMessage(errorBox, 'busAlreadyPassed');
-      errorBox.style.display = 'block';
-    }
+    // Deliberately not showing "el bus ya pasó" here even when
+    // d.bus_already_passed is true: trip_duration_min is the travel time
+    // between two stops, which stays meaningful regardless of whether the
+    // bus has already left the origin — unlike "¿Cuándo llega mi bus?",
+    // where that same flag means the shown ETA/arrival would be nonsense.
   } catch (err) {
     console.error('Trip planner error:', err);
     errorBox.style.color   = 'var(--very_high)';
