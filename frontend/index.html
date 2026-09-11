@@ -316,15 +316,16 @@
      user's location, "Esta es tu parada más cercana" under the highlighted
      nearest stop. Absolutely positioned off a `position:relative` parent
      sized to the marker itself, so it doesn't get clipped by the (small)
-     divIcon box. */
+     divIcon box. Each variant below sets its own (non-black) background —
+     matching that marker's own color — so the two never look identical
+     and neither reads as an error/warning box. */
   .map-label {
     position: absolute;
     top: 100%;
     left: 50%;
     transform: translateX(-50%);
-    margin-top: 6px;
+    margin-top: 10px;
     white-space: nowrap;
-    background: rgba(20,24,31,.9);
     color: #fff;
     font-family: var(--sans);
     font-size: 11px;
@@ -332,9 +333,11 @@
     padding: 3px 9px;
     border-radius: 5px;
     pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    box-shadow: 0 2px 8px rgba(0,0,0,.35);
     z-index: 5;
   }
+  .map-label-here     { background: #3b82f6; } /* matches the user-location dot */
+  .map-label-nearest  { background: #ec4899; } /* matches the nearest-stop ring */
 
   /* bus occupancy popup — shown right on the map when a bus marker is
      tapped, so occupancy is visible without opening the sidebar (the
@@ -850,7 +853,7 @@ function makeStopIcon(isActive, selection = {}) {
   // trip-planner's origin/destination rings don't need one, they're already
   // named in their own dropdowns.
   const labelHtml = selection.myStop
-    ? `<div class="map-label">${I18N[currentLang].nearestStopLabel}</div>`
+    ? `<div class="map-label map-label-nearest">${I18N[currentLang].nearestStopLabel}</div>`
     : '';
 
   return L.divIcon({
@@ -880,7 +883,14 @@ function selectionStateFor(i) {
 
 function rebuildStopIcon(i) {
   if (!stopMarkers[i]) return;
-  stopMarkers[i].setIcon(makeStopIcon(i === activeStopIndex, selectionStateFor(i)));
+  const selection = selectionStateFor(i);
+  stopMarkers[i].setIcon(makeStopIcon(i === activeStopIndex, selection));
+  // Leaflet stacks markers by screen Y-position by default, so a
+  // neighboring stop a bit further "down" the map can render on top of —
+  // and visually blend into — this one's overflowing label. Bumping this
+  // specific marker's z-index guarantees its ring + label always draw
+  // above every other stop marker, regardless of geography.
+  stopMarkers[i].setZIndexOffset(selection.myStop ? 1000 : 0);
 }
 
 function refreshAllStopIcons() {
@@ -1421,7 +1431,7 @@ function makeMyLocationIcon() {
     html: `
       <div class="my-location-wrap" style="width:16px;height:16px;">
         <div class="my-location-dot"></div>
-        <div class="map-label">${I18N[currentLang].youAreHere}</div>
+        <div class="map-label map-label-here">${I18N[currentLang].youAreHere}</div>
       </div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10],
