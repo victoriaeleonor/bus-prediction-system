@@ -285,8 +285,8 @@
     50%      { box-shadow: 0 0 0 8px rgba(15,118,110,.12), 0 0 20px rgba(15,118,110,.35); }
   }
   @keyframes busPulseReturn {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(192,38,211,.3), 0 0 12px rgba(192,38,211,.5); }
-    50%      { box-shadow: 0 0 0 8px rgba(192,38,211,.12), 0 0 20px rgba(192,38,211,.35); }
+    0%, 100% { box-shadow: 0 0 0 4px rgba(132,204,22,.3), 0 0 12px rgba(132,204,22,.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(132,204,22,.12), 0 0 20px rgba(132,204,22,.35); }
   }
 
   /* user location marker */
@@ -1494,8 +1494,8 @@ populateLineSelect();
 // Which specific bus it is (bus_001, bus_003, ...) is still available by
 // tapping it — see the sidebar/popup's "Bus NNN" label.
 const DIRECTION_ACCENT = {
-  1:  { color: '#0f766e', pulse: 'busPulseOutbound' }, // ida
-  '-1': { color: '#c026d3', pulse: 'busPulseReturn' }, // vuelta
+  1:  { color: '#0f766e', pulse: 'busPulseOutbound' }, // ida — teal
+  '-1': { color: '#84cc16', pulse: 'busPulseReturn' }, // vuelta — lima (antes fucsia, que se mezclaba con el violeta de la ruta de Línea 15-1)
 };
 
 function makeBusIcon(occColor, direction, isSelected) {
