@@ -16,13 +16,13 @@ dist/
 build/
 
 # Modelos grandes (van por git-lfs)
-*.pkl
 *.joblib
 *.h5
 
 .env
 .env.local
 .env.production
+.claude
 
 # Datasets
 ml/eta/data/*.csv

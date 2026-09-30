@@ -934,12 +934,15 @@ let routeLayer   = null;
 let stopMarkers  = [];
 let activeStopIndex = null; // index of ROUTE_STOPS closest to the bus right now
 
-// Each line runs exactly one bus (see raspberry-pi/simulator.py's LINES
-// registry: "38" -> bus_001, "15-1" -> bus_002). Route track color is keyed
-// by bus_id — not orange/red (--accent/--high/--very_high already use that
-// range) and not blue (already used by the "my location" marker) — so two
-// buses' tracks stay visually distinct from each other and from the rest
-// of the UI, and adding a third bus later is just one more color entry.
+// Each line runs several buses; LINE_BUS_ID maps a line to its PRIMARY one
+// (see raspberry-pi/simulator.py's LINES registry — bus_ids[0] is the
+// primary). That's the bus selected by default when switching to a line,
+// and the key the route track color is looked up by, so the color is
+// effectively per line. Track colors avoid orange/red (--accent/--high/
+// --very_high already use that range) and blue (already used by the "my
+// location" marker) — so two lines' tracks stay visually distinct from
+// each other and from the rest of the UI, and adding a line later is just
+// one more color entry.
 const LINE_BUS_ID = { '38': 'bus_001', '15-1': 'bus_002' };
 const BUS_ROUTE_COLORS = {
   bus_001: '#0891b2', // cyan/teal
