@@ -1,4 +1,8 @@
 # Bus Prediction System
+# Intelligent Public Transport Prediction — Asunción, Paraguay
+
+> **Capstone Project** — Information Engineering, Universidad Politécnica Taiwán-Paraguay, 2026.
+> Florencia Lujan González Cabriza · Jazmin Adriana González Cabriza · Victoria Eleonor Villamayor Giménez
 
 A real-time bus tracking dashboard for Asunción, Paraguay. It shows where a bus
 is right now, how full it is, when it will reach a given stop, and how long a
